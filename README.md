@@ -46,7 +46,7 @@
 
    - **Android 模拟器**
      ```bash
-     npm run android
+     ./test.sh
      ```
 
    - **iOS 模拟器** (仅 macOS)
