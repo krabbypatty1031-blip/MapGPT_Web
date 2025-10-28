@@ -9,7 +9,7 @@ export const useChat = () => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, action = null) => {
     if (!text || !text.trim()) return;
 
     const userMessage = {
@@ -17,6 +17,7 @@ export const useChat = () => {
       type: 'user',
       text: text.trim(),
       timestamp: new Date(),
+      action, // 保存用户选择的功能类型
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -30,6 +31,7 @@ export const useChat = () => {
         type: 'ai',
         text: response.data?.message || response.mockResponse?.message || '抱歉，我现在无法回答。',
         timestamp: new Date(),
+        action, // AI回复也保存对应的功能类型
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -41,6 +43,7 @@ export const useChat = () => {
         type: 'ai',
         text: '抱歉，发生了一些错误。请稍后再试。',
         timestamp: new Date(),
+        action,
       };
       
       setMessages(prev => [...prev, errorMessage]);
