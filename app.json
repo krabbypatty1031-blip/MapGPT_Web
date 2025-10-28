@@ -7,11 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "mapgpt",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1E90FF"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -26,10 +21,6 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1E90FF"
-      },
       "package": "com.hkbu.mapgpt",
       "permissions": [
         "ACCESS_FINE_LOCATION",
@@ -38,15 +29,9 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "CAMERA"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
-        }
-      }
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [
@@ -67,8 +52,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "7c737077-15cd-4594-9170-95e5b157d0c5"
       }
-    }
+    },
+    "owner": "davidzhangtest"
   }
 }
