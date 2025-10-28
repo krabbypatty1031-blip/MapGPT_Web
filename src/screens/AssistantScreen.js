@@ -9,6 +9,7 @@ import QuickActions from '../components/chat/QuickActions';
 import PresetQuestions from '../components/chat/PresetQuestions';
 import { useChat } from '../hooks/useChat';
 import * as VoiceService from '../services/voiceService';
+import * as ImagePicker from 'expo-image-picker';
 
 const AssistantScreen = ({ navigation }) => {
   const { messages, isLoading, sendMessage } = useChat();
@@ -16,6 +17,9 @@ const AssistantScreen = ({ navigation }) => {
   const [inputMode, setInputMode] = useState('text');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [images, setImages] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [chatInputHeight, setChatInputHeight] = useState(60); // Track ChatInput height
   const recordingAnim = useRef(new Animated.Value(1)).current;
 
   // 处理消息发送（需要先选择快捷操作）
@@ -26,8 +30,11 @@ const AssistantScreen = ({ navigation }) => {
       return;
     }
     
-    // 发送消息时带上选择的功能类型
-    await sendMessage(text, selectedAction);
+    // 发送消息时带上选择的功能类型和图片
+    await sendMessage(text, selectedAction, images);
+    
+    // 清空图片
+    setImages([]);
   };
 
   const handleVoiceInput = async (recognizedText) => {
@@ -41,9 +48,91 @@ const AssistantScreen = ({ navigation }) => {
     setIsRecording(false);
   };
 
-  const handleImagePress = () => {
-    console.log('图片按钮点击');
-    // TODO: 实现图片选择功能
+  const handleImagePress = async () => {
+    try {
+      // 请求相册权限
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('需要相册权限才能选择图片');
+        return;
+      }
+
+      // 打开图片选择器
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const newImage = {
+          id: Date.now().toString(),
+          uri: asset.uri,
+          width: asset.width,
+          height: asset.height,
+          fileSize: asset.fileSize,
+          uploading: true,
+          progress: 0,
+        };
+
+        setImages(prev => [...prev, newImage]);
+        
+        // 开始上传
+        uploadImage(newImage, images.length);
+      }
+    } catch (error) {
+      console.error('选择图片失败:', error);
+      alert('选择图片失败');
+    }
+  };
+
+  // 上传图片
+  const uploadImage = async (image, index) => {
+    try {
+      // 模拟上传进度
+      const simulateProgress = () => {
+        return new Promise((resolve) => {
+          let progress = 0;
+          const interval = setInterval(() => {
+            progress += 10;
+            setUploadProgress(prev => ({ ...prev, [image.id]: progress }));
+            
+            if (progress >= 90) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 200);
+        });
+      };
+
+      await simulateProgress();
+
+      // TODO: 实际上传到服务器
+      // const formData = new FormData();
+      // formData.append('file', {
+      //   uri: image.uri,
+      //   type: 'image/jpeg',
+      //   name: `image_${image.id}.jpg`,
+      // });
+      // const response = await fetch('https://your-api.com/upload', {
+      //   method: 'POST',
+      //   body: formData,
+      // });
+
+      // 更新图片状态为上传完成
+      setImages(prev => prev.map(img => 
+        img.id === image.id ? { ...img, uploading: false, progress: 100 } : img
+      ));
+      setUploadProgress(prev => ({ ...prev, [image.id]: 100 }));
+    } catch (error) {
+      console.error('上传图片失败:', error);
+      setImages(prev => prev.map(img =>
+        img.id === image.id ? { ...img, uploading: false, error: true } : img
+      ));
+      alert('图片上传失败，请重试');
+    }
   };
 
   const handleVoicePress = () => {
@@ -194,6 +283,7 @@ const AssistantScreen = ({ navigation }) => {
       <QuickActions
         selectedAction={selectedAction}
         onSelectAction={setSelectedAction}
+        chatInputHeight={chatInputHeight}
       />
 
       <ChatInput
@@ -206,6 +296,11 @@ const AssistantScreen = ({ navigation }) => {
         isVoiceMode={inputMode === 'voice'}
         onToggleMode={toggleInputMode}
         isRecording={isRecording}
+        images={images}
+        onImagesChange={setImages}
+        uploadProgress={uploadProgress}
+        onHeightChange={setChatInputHeight}
+        selectedAction={selectedAction}
       />
     </LinearGradient>
   );

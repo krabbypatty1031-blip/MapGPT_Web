@@ -7,9 +7,10 @@ import { QUICK_ACTIONS } from '../../constants/chatData';
  * 快捷功能按钮组
  * @param {string} selectedAction - 当前选中的功能ID
  * @param {Function} onSelectAction - 选择功能的回调
+ * @param {number} chatInputHeight - ChatInput组件的高度，用于动态调整位置
  */
-const QuickActions = ({ selectedAction, onSelectAction }) => (
-  <View style={styles.wrapper}>
+const QuickActions = ({ selectedAction, onSelectAction, chatInputHeight = 60 }) => (
+  <View style={[styles.wrapper, { bottom: chatInputHeight + 28 }]}>
     {!selectedAction && (
       <View style={styles.hintContainer}>
         <Text style={styles.hintText}>👆 请先选择一个功能</Text>
@@ -41,7 +42,7 @@ const QuickActions = ({ selectedAction, onSelectAction }) => (
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    bottom: 88,
+    // bottom is now dynamically set via inline style
     left: 0,
     right: 0,
     alignItems: 'center',

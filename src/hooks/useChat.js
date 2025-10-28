@@ -9,7 +9,7 @@ export const useChat = () => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const sendMessage = useCallback(async (text, action = null) => {
+  const sendMessage = useCallback(async (text, action = null, images = []) => {
     if (!text || !text.trim()) return;
 
     const userMessage = {
@@ -18,6 +18,7 @@ export const useChat = () => {
       text: text.trim(),
       timestamp: new Date(),
       action, // 保存用户选择的功能类型
+      images: images.map(img => ({ id: img.id, url: img.url || img.uri })), // 保存图片信息
     };
 
     setMessages(prev => [...prev, userMessage]);

@@ -20,7 +20,9 @@
       "bundleIdentifier": "com.hkbu.mapgpt",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "此应用需要访问您的位置以在地图上显示您的当前位置。",
-        "NSMicrophoneUsageDescription": "此应用需要访问麦克风以进行语音输入。"
+        "NSMicrophoneUsageDescription": "此应用需要访问麦克风以进行语音输入。",
+        "NSPhotoLibraryUsageDescription": "此应用需要访问您的相册以选择图片。",
+        "NSCameraUsageDescription": "此应用需要访问相机以拍摄照片。"
       }
     },
     "android": {
@@ -32,7 +34,10 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA"
       ],
       "config": {
         "googleMaps": {
