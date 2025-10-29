@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
+import { HKBU_LOCATION, CAMPUS_MARKERS } from '../constants/mapData';
 import Header from '../components/common/Header';
 import MessageList from '../components/chat/MessageList';
 import ChatInput from '../components/chat/ChatInput';
 import QuickActions from '../components/chat/QuickActions';
 import PresetQuestions from '../components/chat/PresetQuestions';
+import MapModal from '../components/map/MapModal';
 import { useChat } from '../hooks/useChat';
 import { useVoice } from '../hooks/useVoice';
 import { useImage } from '../hooks/useImage';
@@ -17,6 +19,8 @@ const AssistantScreen = ({ navigation }) => {
   const { images, uploadProgress, pickAndUploadImage, removeImage, clearImages } = useImage();
   const [selectedAction, setSelectedAction] = useState(null);
   const [chatInputHeight, setChatInputHeight] = useState(60);
+  const [isMapVisible, setIsMapVisible] = useState(false);
+  const [currentMapData, setCurrentMapData] = useState(null);
 
   // 处理消息发送（需要先选择快捷操作）
   const handleSendMessage = async (text) => {
@@ -57,8 +61,23 @@ const AssistantScreen = ({ navigation }) => {
   // 处理"查看地图"按钮点击
   const handleViewMap = (message) => {
     console.log('查看地图，消息：', message);
-    // TODO: 导航到地图页面或在地图上显示相关位置
-    // navigation.navigate('Map', { query: message.text, action: message.action });
+    
+    // 设置地图数据（使用默认的校园数据）
+    setCurrentMapData({
+      message: message,
+      // 使用预定义的浸大位置
+      region: HKBU_LOCATION,
+      // 使用预定义的校园标记点
+      markers: CAMPUS_MARKERS,
+    });
+    
+    // 显示地图弹窗
+    setIsMapVisible(true);
+  };
+
+  // 关闭地图弹窗
+  const handleCloseMap = () => {
+    setIsMapVisible(false);
   };
 
   return (
@@ -105,6 +124,15 @@ const AssistantScreen = ({ navigation }) => {
         uploadProgress={uploadProgress}
         onHeightChange={setChatInputHeight}
         selectedAction={selectedAction}
+      />
+
+      {/* 地图弹出窗 */}
+      <MapModal
+        visible={isMapVisible}
+        onClose={handleCloseMap}
+        initialRegion={currentMapData?.region}
+        markers={currentMapData?.markers}
+        chatInputHeight={chatInputHeight}
       />
     </LinearGradient>
   );

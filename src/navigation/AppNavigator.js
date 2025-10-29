@@ -5,7 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import WelcomeScreen from '../screens/WelcomeScreen';
 import AssistantScreen from '../screens/AssistantScreen';
-import MapScreen from '../screens/MapScreen';
+
 
 const Stack = createStackNavigator();
 
@@ -53,13 +53,7 @@ const AppNavigator = () => {
               title: 'AI助手',
             }}
           />
-          <Stack.Screen 
-            name="Map" 
-            component={MapScreen}
-            options={{
-              title: '校园地图',
-            }}
-          />
+
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

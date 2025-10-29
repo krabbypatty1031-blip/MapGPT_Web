@@ -7,3 +7,4 @@ export { default as ImageIcon } from './ImageIcon';
 export { default as VoiceIcon } from './VoiceIcon';
 export { default as SendIcon } from './SendIcon';
 export { default as StarIcon } from './StarIcon';
+export { default as NavigationIcon } from './NavigationIcon';
