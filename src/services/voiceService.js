@@ -1,15 +1,11 @@
 /**
  * 语音服务
- * 处理语音录音、识别、播放和转换
+ * 处理语音录音、播放和权限管理
+ * API调用已迁移至 api.js
  */
 
 import { Audio } from 'expo-av';
-
-// API配置
-const VOICE_API_CONFIG = {
-  baseURL: process.env.VOICE_API_URL || 'https://your-voice-api-endpoint.com',
-  timeout: 30000,
-};
+import { VoiceAPI } from './api';
 
 // 全局录音对象
 let recording = null;
@@ -193,46 +189,17 @@ export const getRecordingStatus = async () => {
  */
 export const speechToText = async (audioUri, options = {}) => {
   try {
-    const formData = new FormData();
-    formData.append('audio', {
-      uri: audioUri,
-      type: 'audio/m4a',
-      name: 'recording.m4a',
+    const result = await VoiceAPI.speechToText({
+      audioUri,
+      language: options.language,
+      actionType: options.actionType,
     });
 
-    // 添加额外参数
-    if (options.language) {
-      formData.append('language', options.language);
-    }
-    if (options.actionType) {
-      formData.append('actionType', options.actionType);
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VOICE_API_CONFIG.timeout);
-
-    const response = await fetch(`${VOICE_API_CONFIG.baseURL}/speech-to-text`, {
-      method: 'POST',
-      body: formData,
-      signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`语音识别API错误: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
     return {
       success: true,
-      text: data.text,
-      confidence: data.confidence || 0,
-      language: data.language,
+      text: result.text,
+      confidence: result.confidence || 0,
+      language: result.language,
     };
   } catch (error) {
     console.error('语音转文字失败:', error);
@@ -286,28 +253,16 @@ export const textToSpeech = async (text, options = {}) => {
       sound = null;
     }
 
-    const response = await fetch(`${VOICE_API_CONFIG.baseURL}/text-to-speech`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text,
-        voiceType: options.voiceType || 'female',
-        language: options.language || 'zh-CN',
-        speed: options.speed || 1.0,
-      }),
+    const result = await VoiceAPI.textToSpeech({
+      text,
+      voiceType: options.voiceType || 'female',
+      language: options.language || 'zh-CN',
+      speed: options.speed || 1.0,
     });
 
-    if (!response.ok) {
-      throw new Error('文字转语音失败');
-    }
-
-    const data = await response.json();
-    
     // 播放音频
     const { sound: newSound } = await Audio.Sound.createAsync(
-      { uri: data.audioUrl },
+      { uri: result.audioUrl },
       { shouldPlay: true }
     );
 

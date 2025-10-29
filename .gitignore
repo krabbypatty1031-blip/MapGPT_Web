@@ -29,15 +29,14 @@ ai_planner
 .env.*.local
 
 # Android
-android/
-# android/app/build/
-# android/build/
-# android/.gradle/
-# android/app/release/
-# android/app/debug/
-# *.apk
-# *.aab
-# local.properties
+android/app/build/
+android/build/
+android/.gradle/
+android/app/release/
+android/app/debug/
+*.apk
+*.aab
+local.properties
 
 # iOS
 ios/Pods/

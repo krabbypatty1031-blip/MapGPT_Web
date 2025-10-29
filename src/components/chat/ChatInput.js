@@ -18,7 +18,7 @@ import { ImageIcon, VoiceIcon, KeyboardIcon, SendIcon } from '../icons';
  * @param {Function} onToggleMode - 切换输入模式回调
  * @param {boolean} isRecording - 是否正在录音
  * @param {Array} images - 图片列表
- * @param {Function} onImagesChange - 图片变化回调
+ * @param {Function} onImagesChange - 删除图片回调，传入 imageId
  * @param {Object} uploadProgress - 上传进度
  * @param {string} selectedAction - 当前选中的功能
  */
@@ -69,10 +69,11 @@ const ChatInput = ({
     }
   };
 
-  // 删除图片
-  const removeImage = (imageId) => {
-    const updatedImages = images.filter(img => img.id !== imageId);
-    onImagesChange(updatedImages);
+  // 删除图片 - 直接调用父组件的删除函数
+  const handleRemoveImage = (imageId) => {
+    if (onImagesChange) {
+      onImagesChange(imageId);
+    }
   };
 
   // 渲染单个图片
@@ -118,7 +119,7 @@ const ChatInput = ({
         {/* 删除按钮 */}
         <TouchableOpacity
           style={styles.deleteButton}
-          onPress={() => removeImage(image.id)}
+          onPress={() => handleRemoveImage(image.id)}
           activeOpacity={0.7}
         >
           <Svg width="20" height="20" viewBox="0 0 20 20" fill="none">

@@ -1,16 +1,10 @@
 /**
  * 对话服务
- * 处理与AI后端的通信和消息管理
+ * 处理聊天业务逻辑和Mock数据生成
+ * API调用已迁移至 api.js
  */
 
-// API配置
-const API_CONFIG = {
-  baseURL: process.env.API_BASE_URL || 'https://your-api-endpoint.com',
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-};
+import { ChatAPI } from './api';
 
 /**
  * 发送消息到AI助手
@@ -21,32 +15,15 @@ const API_CONFIG = {
  */
 export const sendMessage = async (message, sessionId = null, context = {}) => {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout);
-
-    const response = await fetch(`${API_CONFIG.baseURL}/chat`, {
-      method: 'POST',
-      headers: API_CONFIG.headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        message,
-        sessionId,
-        context,
-        timestamp: new Date().toISOString(),
-      }),
+    const result = await ChatAPI.sendMessage({
+      message,
+      sessionId,
+      context,
     });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`API错误: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
     
     return {
       success: true,
-      data,
+      data: result,
     };
   } catch (error) {
     console.error('发送消息失败:', error);
@@ -179,18 +156,10 @@ export const getPresetQuestions = () => {
  */
 export const getChatHistory = async (sessionId) => {
   try {
-    const response = await fetch(`${API_CONFIG.baseURL}/chat/history/${sessionId}`, {
-      headers: API_CONFIG.headers,
-    });
-
-    if (!response.ok) {
-      throw new Error('获取历史记录失败');
-    }
-
-    const data = await response.json();
+    const result = await ChatAPI.getHistory(sessionId);
     return {
       success: true,
-      data,
+      data: result,
     };
   } catch (error) {
     console.error('获取历史记录失败:', error);
@@ -209,15 +178,7 @@ export const getChatHistory = async (sessionId) => {
  */
 export const clearChatSession = async (sessionId) => {
   try {
-    const response = await fetch(`${API_CONFIG.baseURL}/chat/session/${sessionId}`, {
-      method: 'DELETE',
-      headers: API_CONFIG.headers,
-    });
-
-    if (!response.ok) {
-      throw new Error('清除会话失败');
-    }
-
+    await ChatAPI.deleteSession(sessionId);
     return {
       success: true,
     };

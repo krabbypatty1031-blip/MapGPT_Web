@@ -39,6 +39,7 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1,
   },
   backButtonText: {
     fontSize: 36,
@@ -52,6 +53,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    top: theme.spacing.xl + 15, // 直接定位标题，使其与箭头视觉对齐
     textAlign: 'center',
   },
   rightContainer: {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Image, TouchableOpacity, StyleSheet, Text, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { ImageAPI } from '../../services/api';
 
 /**
  * 图片上传组件
@@ -61,59 +62,29 @@ const ImageUploader = ({ images = [], onImagesChange, maxImages = 9 }) => {
     try {
       setUploadingIndex(index);
 
-      // 创建 FormData
-      const formData = new FormData();
-      formData.append('file', {
+      // 使用 ImageAPI 上传图片，带进度回调
+      const result = await ImageAPI.uploadImage({
         uri: image.uri,
-        type: 'image/jpeg',
-        name: `image_${image.id}.jpg`,
-      });
-
-      // 模拟上传进度（实际项目中用 XMLHttpRequest 或 axios 实现真实进度）
-      const simulateProgress = () => {
-        return new Promise((resolve) => {
-          let progress = 0;
-          const interval = setInterval(() => {
-            progress += 10;
-            setUploadProgress(prev => ({ ...prev, [image.id]: progress }));
-            
-            if (progress >= 90) {
-              clearInterval(interval);
-              resolve();
-            }
-          }, 200);
-        });
-      };
-
-      await simulateProgress();
-
-      // 实际上传到服务器
-      const response = await fetch('https://your-api.com/upload', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
+        imageId: image.id,
+        onProgress: (progress) => {
+          setUploadProgress(prev => ({ ...prev, [image.id]: progress }));
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        
-        // 更新图片状态
-        const updatedImages = [...images];
-        updatedImages[index] = {
-          ...image,
-          uploading: false,
-          progress: 100,
-          url: data.url, // 服务器返回的图片 URL
-        };
-        
-        setUploadProgress(prev => ({ ...prev, [image.id]: 100 }));
-        onImagesChange(updatedImages);
-        setUploadingIndex(null);
-      } else {
-        throw new Error('上传失败');
-      }
+      // 更新图片状态为上传完成，保存服务器返回的 URL
+      const updatedImages = [...images];
+      updatedImages[index] = {
+        ...image,
+        uploading: false,
+        progress: 100,
+        url: result.url, // 服务器返回的图片 URL
+      };
+      
+      setUploadProgress(prev => ({ ...prev, [image.id]: 100 }));
+      onImagesChange(updatedImages);
+      setUploadingIndex(null);
+      
+      console.log('图片上传成功:', result);
     } catch (error) {
       console.error('上传图片失败:', error);
       
