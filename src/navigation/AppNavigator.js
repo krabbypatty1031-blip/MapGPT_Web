@@ -53,7 +53,6 @@ const AppNavigator = () => {
               title: 'AI助手',
             }}
           />
-
         </Stack.Navigator>
       </NavigationContainer>
     </GestureHandlerRootView>

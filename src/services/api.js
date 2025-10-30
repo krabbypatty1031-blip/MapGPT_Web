@@ -4,7 +4,8 @@
  */
 
 // API基础配置
-export const API_BASE_URL = process.env.API_BASE_URL || 'https://your-api-endpoint.com';
+// export const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = 'http://localhost:8000';
 export const API_TIMEOUT = 30000;
 
 // API端点定义

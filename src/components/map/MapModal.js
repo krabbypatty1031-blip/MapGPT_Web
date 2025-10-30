@@ -10,7 +10,7 @@ import RouteDrawer from './RouteDrawer';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // 地图弹窗宽度（设计稿要求）
-const MAP_WIDTH = 390;
+const MAP_WIDTH = 355;
 // 计算Header的高度 (状态栏 + Header内容)
 const HEADER_HEIGHT = Platform.OS === 'ios' ? 100 : 80;
 // QuickActions 的高度：按钮33px + chatInputHeight动态值 + 上下间距(28px bottom + 一些padding)
