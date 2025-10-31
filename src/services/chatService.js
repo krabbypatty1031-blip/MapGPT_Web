@@ -4,43 +4,90 @@
  * API调用已迁移至 api.js
  */
 
-import { ChatAPI } from './api';
+import { ChatAPI, API_BASE_URL, API_ENDPOINTS } from './api';
 
 /**
- * 发送消息到AI助手
+ * 发送消息到AI助手（流式响应）
  * @param {string} message - 用户消息
  * @param {string} sessionId - 会话ID（可选）
+ * @param {string} action - 快捷功能类型 (route/location/image/voice)
+ * @param {Array} images - 图片数组
  * @param {Object} context - 上下文信息（可选）
- * @returns {Promise<Object>} AI响应
+ * @param {Function} onChunk - 接收数据块的回调
+ * @param {Function} onComplete - 完成的回调
+ * @param {Function} onError - 错误的回调
+ * @returns {Promise<void>}
  */
-export const sendMessage = async (message, sessionId = null, context = {}) => {
+export const sendMessage = async (message, sessionId = null, action = null, images = [], context = {}, onChunk, onComplete, onError) => {
+  console.log('[chatService] sendMessage 调用:', { message, sessionId, action, images, context });
+
   try {
-    const result = await ChatAPI.sendMessage({
+    const requestBody = {
       message,
-      sessionId,
+      sessionId: sessionId || 'default',
+      action,
+      images,
       context,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log('[chatService] 发送请求:', requestBody);
+
+    const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.CHAT_SEND}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
     });
-    
-    return {
-      success: true,
-      data: result,
-    };
-  } catch (error) {
-    console.error('发送消息失败:', error);
-    
-    // 在开发环境返回模拟数据
-    if (__DEV__) {
-      return {
-        success: true,
-        data: generateMockResponse(message),
-        isMock: true,
-      };
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
+
+    // 获取完整的响应文本
+    const responseText = await response.text();
+    console.log('[chatService] 收到完整响应:', responseText);
+
+    // 解析 SSE 格式的数据
+    const lines = responseText.split('\n');
+    let chunkIndex = 0;
     
-    return {
-      success: false,
-      error: error.message,
+    const processNextChunk = () => {
+      if (chunkIndex >= lines.length) {
+        onComplete && onComplete();
+        return;
+      }
+      
+      const line = lines[chunkIndex++];
+      if (line.startsWith('data:')) {
+        const jsonStr = line.substring(5).trim(); // 移除 'data:' 后的内容
+        if (jsonStr) {
+          try {
+            const data = JSON.parse(jsonStr);
+            console.log('[chatService] 解析到数据块:', data);
+            onChunk && onChunk(data);
+
+            if (data.done) {
+              console.log('[chatService] 消息接收完成');
+              onComplete && onComplete();
+              return;
+            }
+          } catch (e) {
+            console.warn('[chatService] 解析JSON失败:', jsonStr, e);
+          }
+        }
+      }
+      
+      // 异步处理下一个数据块
+      setTimeout(processNextChunk, 0);
     };
+    
+    // 开始处理第一个数据块
+    setTimeout(processNextChunk, 0);
+  } catch (error) {
+    console.error('[chatService] 发送消息失败:', error);
+    onError && onError(error);
   }
 };
 

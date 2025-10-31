@@ -5,7 +5,7 @@
 
 // API基础配置
 // export const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000';
-export const API_BASE_URL = 'http://localhost:8000';
+export const API_BASE_URL = 'http://10.0.2.2:8787';
 export const API_TIMEOUT = 30000;
 
 // API端点定义
@@ -49,6 +49,10 @@ const request = async (endpoint, options = {}) => {
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
+    // 检测是否为 FormData 或 Blob（文件上传场景）
+    const isFormData = body && typeof body.append === 'function';
+    const isBlob = typeof Blob !== 'undefined' && body instanceof Blob;
+    
     const config = {
       method,
       headers: {
@@ -59,19 +63,50 @@ const request = async (endpoint, options = {}) => {
       ...otherOptions,
     };
 
-    if (body && method !== 'GET') {
-      config.body = typeof body === 'string' ? body : JSON.stringify(body);
+    // 对于 FormData/Blob，删除 Content-Type 让运行时自动设置 boundary
+    if (isFormData || isBlob) {
+      delete config.headers['Content-Type'];
     }
+
+    if (body && method !== 'GET') {
+      if (isFormData || isBlob) {
+        // 直接传递 FormData/Blob，不做任何转换
+        config.body = body;
+      } else if (typeof body === 'string') {
+        config.body = body;
+      } else {
+        // 普通对象转 JSON
+        config.body = JSON.stringify(body);
+      }
+    }
+
+    console.log(`[API] 请求: ${method} ${endpoint}`, {
+      isFormData,
+      isBlob,
+      hasBody: !!body,
+      headers: config.headers,
+    });
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
     
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // 尝试读取错误响应体
+      let errorDetail = response.statusText;
+      try {
+        const errorBody = await response.text();
+        console.error(`[API] 错误响应体: ${errorBody}`);
+        errorDetail = errorBody || errorDetail;
+      } catch (e) {
+        console.error(`[API] 无法读取错误响应体:`, e);
+      }
+      
+      throw new Error(`HTTP ${response.status}: ${errorDetail}`);
     }
 
     const data = await response.json();
+    console.log(`[API] 响应成功:`, data);
     return {
       success: true,
       data,
@@ -102,6 +137,13 @@ export const ChatAPI = {
    * @returns {Promise<Object>}
    */
   sendMessage: async ({ message, sessionId, action, images = [], context = {} }) => {
+    console.log('[ChatAPI] sendMessage 调用:', {
+      message,
+      sessionId,
+      action,
+      images,
+      context,
+    });
     return request(API_ENDPOINTS.CHAT_SEND, {
       method: 'POST',
       body: {
@@ -164,9 +206,7 @@ export const VoiceAPI = {
 
     return request(API_ENDPOINTS.SPEECH_TO_TEXT, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // 不要手动设置 Content-Type，让 fetch 自动设置 multipart/form-data 的 boundary
       body: formData,
     });
   },
@@ -213,6 +253,8 @@ export const ImageAPI = {
       name: `image_${imageId}.jpg`,
     });
 
+    console.log('[ImageAPI] uploadImage 调用:', { uri, imageId, hasProgress: !!onProgress });
+
     // 如果需要上传进度，使用XMLHttpRequest
     if (onProgress) {
       return new Promise((resolve, reject) => {
@@ -226,32 +268,50 @@ export const ImageAPI = {
         });
 
         xhr.addEventListener('load', () => {
+          console.log('[ImageAPI XHR] 响应状态:', xhr.status);
+          console.log('[ImageAPI XHR] 响应文本:', xhr.responseText);
+          
           if (xhr.status === 200) {
             try {
               const data = JSON.parse(xhr.responseText);
               resolve({ success: true, data });
             } catch (error) {
+              console.error('[ImageAPI XHR] JSON 解析失败:', error);
               reject({ success: false, error: 'Invalid response' });
             }
           } else {
-            reject({ success: false, error: `HTTP ${xhr.status}` });
+            // 尝试解析错误响应
+            let errorMsg = `HTTP ${xhr.status}`;
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              errorMsg = errorData.message || errorMsg;
+            } catch (e) {
+              errorMsg = xhr.responseText || errorMsg;
+            }
+            console.error('[ImageAPI XHR] 请求失败:', errorMsg);
+            reject({ success: false, error: errorMsg });
           }
         });
 
-        xhr.addEventListener('error', () => {
+        xhr.addEventListener('error', (e) => {
+          console.error('[ImageAPI XHR] 网络错误:', e);
           reject({ success: false, error: 'Upload failed' });
         });
 
         xhr.open('POST', `${API_BASE_URL}${API_ENDPOINTS.IMAGE_UPLOAD}`);
+        
+        // 关键修复：不要设置 Content-Type header
+        // XMLHttpRequest 会自动为 FormData 设置正确的 Content-Type（包含 boundary）
+        // xhr.setRequestHeader('Content-Type', 'multipart/form-data'); // ❌ 删除这行
+        
+        console.log('[ImageAPI XHR] 发送请求到:', `${API_BASE_URL}${API_ENDPOINTS.IMAGE_UPLOAD}`);
         xhr.send(formData);
       });
     }
 
     return request(API_ENDPOINTS.IMAGE_UPLOAD, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // 不要手动设置 Content-Type，让 fetch 自动设置 multipart/form-data 的 boundary
       body: formData,
     });
   },

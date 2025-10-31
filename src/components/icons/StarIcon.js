@@ -1,67 +1,30 @@
 import React from 'react';
-import Svg, { Path, Defs, LinearGradient, Stop, G, Filter, FeFlood, FeColorMatrix, FeOffset, FeGaussianBlur, FeComposite, FeBlend } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 /**
  * 渐变星星图标 - 用于功能引导标题
- * 带有阴影和内阴影效果的星星图标
+ * 简化版本，移除了不支持的滤镜效果
  */
 const StarIcon = ({ size = 15 }) => {
   return (
     <Svg width={size} height={size} viewBox="0 0 15 15" fill="none">
       <Defs>
-        <Filter
-          id="filter0_di_51_3621"
-          x="0.4223"
-          y="0.4223"
-          width="14.0067"
-          height="14.0067"
-          filterUnits="userSpaceOnUse"
-          colorInterpolationFilters="sRGB"
-        >
-          <FeFlood floodOpacity="0" result="BackgroundImageFix" />
-          <FeColorMatrix
-            in="SourceAlpha"
-            type="matrix"
-            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-            result="hardAlpha"
-          />
-          <FeOffset dx="0.285259" dy="0.285259" />
-          <FeGaussianBlur stdDeviation="0.570517" />
-          <FeComposite in2="hardAlpha" operator="out" />
-          <FeColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.16 0" />
-          <FeBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_51_3621" />
-          <FeBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_51_3621" result="shape" />
-          <FeColorMatrix
-            in="SourceAlpha"
-            type="matrix"
-            values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-            result="hardAlpha"
-          />
-          <FeOffset dy="-0.285259" />
-          <FeGaussianBlur stdDeviation="0.570517" />
-          <FeComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-          <FeColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0" />
-          <FeBlend mode="normal" in2="shape" result="effect2_innerShadow_51_3621" />
-        </Filter>
         <LinearGradient
           id="paint0_linear_51_3621"
-          x1="9.00012"
-          y1="4.5"
-          x2="4.50012"
-          y2="11.5"
+          x1="3.13929"
+          y1="3.13929"
+          x2="11.7114"
+          y2="11.7114"
           gradientUnits="userSpaceOnUse"
         >
-          <Stop offset="0" stopColor="#86E0D7" />
-          <Stop offset="0.655169" stopColor="#559FF8" />
-          <Stop offset="1" stopColor="#3D2BFF" />
+          <Stop stopColor="#64BBF8" />
+          <Stop offset="1" stopColor="#0047BA" />
         </LinearGradient>
       </Defs>
-      <G filter="url(#filter0_di_51_3621)">
-        <Path
-          d="M8.41846 1.27803L8.42822 2.50906C8.44655 4.82166 9.79236 6.91785 11.8875 7.89709L13.0027 8.41836L11.7717 8.42812C9.45911 8.44645 7.36292 9.79226 6.38368 11.8874L5.86241 13.0026L5.85265 11.7716C5.83432 9.45901 4.48851 7.36282 2.39339 6.38357L1.27813 5.86231L2.50916 5.85255C4.82176 5.83422 6.91795 4.48841 7.89719 2.39329L8.41846 1.27803Z"
-          fill="url(#paint0_linear_51_3621)"
-        />
-      </G>
+      <Path
+        d="M7.42556 1.13929C7.58108 1.13929 7.72054 1.23464 7.77453 1.37951L9.27109 5.4643L13.6434 6.08009C13.7967 6.10147 13.9193 6.21659 13.9537 6.3666C13.988 6.51662 13.9274 6.67227 13.8027 6.76148L10.503 9.13286L11.2867 13.4691C11.3153 13.6214 11.2496 13.7757 11.1186 13.8592C10.9876 13.9428 10.8183 13.9383 10.6919 13.8481L7.42556 11.4764L4.15924 13.8481C4.03286 13.9383 3.86354 13.9428 3.73253 13.8592C3.60152 13.7757 3.53584 13.6214 3.56446 13.4691L4.34816 9.13286L1.04843 6.76148C0.923787 6.67227 0.863118 6.51662 0.897488 6.3666C0.931858 6.21659 1.05446 6.10147 1.20773 6.08009L5.58004 5.4643L7.07659 1.37951C7.13059 1.23464 7.27004 1.13929 7.42556 1.13929Z"
+        fill="url(#paint0_linear_51_3621)"
+      />
     </Svg>
   );
 };

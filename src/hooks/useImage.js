@@ -89,9 +89,11 @@ export const useImage = () => {
    * 清空所有图片
    */
   const clearImages = useCallback(() => {
+    console.log('[useImage] clearImages 被调用，当前images长度:', images.length);
     setImages([]);
     setUploadProgress({});
-  }, []);
+    console.log('[useImage] clearImages 完成');
+  }, [images.length]);
 
   /**
    * 分析图片

@@ -85,18 +85,30 @@ export const pickImage = async (options = {}) => {
  */
 export const uploadImage = async (image, onProgress) => {
   try {
+    console.log('[ImageService] 开始上传图片:', { 
+      id: image.id, 
+      uri: image.uri,
+      hasProgress: !!onProgress 
+    });
+    
     const result = await ImageAPI.uploadImage({
       uri: image.uri,
       imageId: image.id,
       onProgress,
     });
 
+    console.log('[ImageService] 上传结果:', result);
+
+    if (!result.success) {
+      throw new Error(result.error || '上传失败');
+    }
+
     return {
       success: true,
-      data: result,
+      data: result.data,
     };
   } catch (error) {
-    console.error('上传图片失败:', error);
+    console.error('[ImageService] 上传图片失败:', error);
     return {
       success: false,
       error: error.message || '图片上传失败',

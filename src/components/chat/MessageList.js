@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { View, ScrollView, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { theme } from '../../constants/theme';
 import MessageBubble from './MessageBubble';
@@ -9,39 +9,16 @@ import ChatHeader from './ChatHeader';
  * @param {Array} messages - 消息列表
  * @param {boolean} isLoading - 是否正在加载
  * @param {Function} onViewMap - 查看地图回调
+ * @param {Function} getMessageText - 获取消息文本的函数（用于流式消息）
+ * @param {number} chatInputHeight - ChatInput组件的高度，用于计算底部padding
  */
-const MessageList = ({ messages, isLoading, onViewMap }) => {
-  const scrollViewRef = useRef(null);
-
-  // 滚动到底部的函数
-  const scrollToBottom = (animated = true) => {
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated });
-    }, 100);
-  };
-
-  // 当消息列表变化时滚动到底部
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom(true);
-    }
-  }, [messages]);
-
-  // 当加载状态变化时也滚动到底部
-  useEffect(() => {
-    if (isLoading) {
-      scrollToBottom(true);
-    }
-  }, [isLoading]);
+const MessageList = ({ messages, isLoading, onViewMap, getMessageText, chatInputHeight = 60 }) => {
 
   return (
     <ScrollView
-      ref={scrollViewRef}
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
-      onContentSizeChange={() => scrollToBottom(true)}
-      onLayout={() => scrollToBottom(false)}
     >
       {/* AI助手头像和欢迎语 - 始终显示在顶部 */}
       <ChatHeader />
@@ -53,6 +30,7 @@ const MessageList = ({ messages, isLoading, onViewMap }) => {
             message={msg}
             isUser={msg.type === 'user'}
             onViewMap={onViewMap}
+            getMessageText={getMessageText}
           />
         ))}
         
@@ -72,7 +50,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingBottom: theme.spacing.md,
+    // paddingBottom 现在通过内联样式动态设置
   },
   messagesContainer: {
     paddingHorizontal: 10, // 左右各10px，确保355px的气泡能正常显示

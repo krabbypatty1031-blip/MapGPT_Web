@@ -126,6 +126,10 @@ export const calculateDistance = (point1, point2) => {
  * @returns {string} 格式化后的距离
  */
 export const formatDistance = (meters) => {
+  if (typeof meters !== 'number' || isNaN(meters)) {
+    return '未知距离';
+  }
+  
   if (meters < 1000) {
     return `${Math.round(meters)}米`;
   }

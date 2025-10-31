@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
@@ -14,23 +14,59 @@ import { useVoice } from '../hooks/useVoice';
 import { useImage } from '../hooks/useImage';
 
 const AssistantScreen = ({ navigation }) => {
-  const { messages, isLoading, sendMessage } = useChat();
+  const { messages, isLoading, sendMessage, getMessageText } = useChat();
   const { isRecording, isProcessing, startRecording, stopRecording } = useVoice();
   const { images, uploadProgress, pickAndUploadImage, removeImage, clearImages } = useImage();
   const [selectedAction, setSelectedAction] = useState(null);
   const [chatInputHeight, setChatInputHeight] = useState(60);
   const [isMapVisible, setIsMapVisible] = useState(false);
   const [currentMapData, setCurrentMapData] = useState(null);
+  const [routeLocations, setRouteLocations] = useState([]); // 存储route action的地点信息
+
+  // 监听消息变化，处理route locations
+  useEffect(() => {
+    const latestMessage = messages[messages.length - 1];
+    if (latestMessage && latestMessage.type === 'ai' && latestMessage.locations && Array.isArray(latestMessage.locations) && latestMessage.locations.length > 0) {
+      console.log('[AssistantScreen] 检测到route locations:', latestMessage.locations);
+      // 过滤掉无效的locations
+      const validLocations = latestMessage.locations.filter(location => 
+        location && 
+        typeof location.latitude === 'number' && 
+        typeof location.longitude === 'number' &&
+        location.latitude >= -90 && location.latitude <= 90 &&
+        location.longitude >= -180 && location.longitude <= 180
+      );
+      
+      if (validLocations.length > 0) {
+        setRouteLocations(validLocations);
+        setIsMapVisible(true);
+      } else {
+        console.warn('[AssistantScreen] 没有有效的route locations');
+      }
+    }
+  }, [messages]);
 
   // 处理消息发送（需要先选择快捷操作）
   const handleSendMessage = async (text) => {
+    console.log('[AssistantScreen] handleSendMessage:', { text, selectedAction, images });
     if (!selectedAction) {
       console.log('请先选择一个功能（路线规划、智能找点、拍图提问或语音讲解）');
       return;
     }
     
-    await sendMessage(text, selectedAction, images);
-    clearImages(); // 使用 Hook 的 clearImages
+    // 保存当前的图片和选择状态，用于发送
+    const currentImages = [...images];
+    const currentAction = selectedAction;
+    
+    // 立即清理界面
+    clearImages();
+    setSelectedAction(null);
+    setRouteLocations([]); // 清空之前的route locations
+    console.log('[AssistantScreen] 界面已清理，开始发送消息');
+    
+    // 发送消息
+    await sendMessage(text, currentAction, currentImages);
+    console.log('[AssistantScreen] 消息发送完成');
   };
 
   // 处理语音输入
@@ -80,6 +116,32 @@ const AssistantScreen = ({ navigation }) => {
     setIsMapVisible(false);
   };
 
+  // 优化markers数组的稳定性
+  const markers = useMemo(() => [
+    ...(currentMapData?.markers || []).filter(marker =>
+      marker.coordinate &&
+      typeof marker.coordinate.latitude === 'number' &&
+      typeof marker.coordinate.longitude === 'number'
+    ),
+    ...routeLocations
+      .filter(location =>
+        typeof location.latitude === 'number' &&
+        typeof location.longitude === 'number' &&
+        location.latitude >= -90 && location.latitude <= 90 &&
+        location.longitude >= -180 && location.longitude <= 180
+      )
+      .map(location => ({
+        id: `route-${location.id}`,
+        coordinate: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+        },
+        title: location.name,
+        description: `${location.type} - ${location.name}`,
+        type: location.type,
+      }))
+  ], [currentMapData?.markers, routeLocations]);
+
   return (
     <LinearGradient colors={['#F5F7FA', '#E8EEF5']} style={styles.container}>
       <Header
@@ -97,6 +159,8 @@ const AssistantScreen = ({ navigation }) => {
             messages={messages} 
             isLoading={isLoading}
             onViewMap={handleViewMap}
+            getMessageText={getMessageText}
+            chatInputHeight={chatInputHeight}
           />
         ) : (
           <PresetQuestions 
@@ -113,6 +177,7 @@ const AssistantScreen = ({ navigation }) => {
       />
 
       <ChatInput
+        key={`chat-input-${images.length}-${selectedAction}`} // 强制重新渲染当图片或选择改变时
         onSendMessage={handleSendMessage}
         onImagePress={handleImagePress}
         onVoiceRecordStart={handleVoiceRecordStart}
@@ -131,7 +196,7 @@ const AssistantScreen = ({ navigation }) => {
         visible={isMapVisible}
         onClose={handleCloseMap}
         initialRegion={currentMapData?.region}
-        markers={currentMapData?.markers}
+        markers={markers}
         chatInputHeight={chatInputHeight}
       />
     </LinearGradient>
