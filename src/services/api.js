@@ -5,7 +5,7 @@
 
 // API基础配置
 // export const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000';
-export const API_BASE_URL = 'http://10.0.2.2:8787';
+export const API_BASE_URL = 'http://123.56.15.137:8787';
 export const API_TIMEOUT = 30000;
 
 // API端点定义
@@ -28,6 +28,8 @@ export const API_ENDPOINTS = {
   MAP_LOCATION: '/api/map/location',
   MAP_POI: '/api/map/poi',
   MAP_SEARCH: '/api/map/search',
+  MAP_LAYERS_BUILDINGS: '/api/map/layers/buildings',
+  MAP_LAYERS_ROADS: '/api/map/layers/roads',
 };
 
 /**
@@ -80,12 +82,8 @@ const request = async (endpoint, options = {}) => {
       }
     }
 
-    console.log(`[API] 请求: ${method} ${endpoint}`, {
-      isFormData,
-      isBlob,
-      hasBody: !!body,
-      headers: config.headers,
-    });
+    // 仅记录请求基本信息
+    console.log(`[API] 请求: ${method} ${endpoint}`);
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
     
@@ -96,7 +94,7 @@ const request = async (endpoint, options = {}) => {
       let errorDetail = response.statusText;
       try {
         const errorBody = await response.text();
-        console.error(`[API] 错误响应体: ${errorBody}`);
+        console.error(`[API] 错误响应 (${response.status}):`, errorBody);
         errorDetail = errorBody || errorDetail;
       } catch (e) {
         console.error(`[API] 无法读取错误响应体:`, e);
@@ -106,7 +104,12 @@ const request = async (endpoint, options = {}) => {
     }
 
     const data = await response.json();
-    console.log(`[API] 响应成功:`, data);
+    // 仅记录响应状态，不打印完整数据
+    console.log(`[API] 响应成功: ${method} ${endpoint}`, {
+      status: response.status,
+      hasData: !!data,
+      type: data?.type || 'unknown',
+    });
     return {
       success: true,
       data,
@@ -121,6 +124,8 @@ const request = async (endpoint, options = {}) => {
     };
   }
 };
+
+export const apiRequest = request;
 
 /**
  * 聊天API
@@ -269,11 +274,11 @@ export const ImageAPI = {
 
         xhr.addEventListener('load', () => {
           console.log('[ImageAPI XHR] 响应状态:', xhr.status);
-          console.log('[ImageAPI XHR] 响应文本:', xhr.responseText);
           
           if (xhr.status === 200) {
             try {
               const data = JSON.parse(xhr.responseText);
+              console.log('[ImageAPI XHR] 上传成功，imageId:', data?.imageId);
               resolve({ success: true, data });
             } catch (error) {
               console.error('[ImageAPI XHR] JSON 解析失败:', error);
@@ -353,6 +358,42 @@ export const MapAPI = {
         start,
         end,
         mode,
+      },
+    });
+  },
+
+  /**
+   * 获取建筑图层
+   * @param {Object} params
+   * @param {Object} params.bounds - 可选的边界框 {minLat,maxLat,minLon,maxLon}
+   * @param {number} params.limit - 返回数量
+   * @returns {Promise<Object>}
+   */
+  getBuildingLayers: async ({ bounds, limit } = {}) => {
+    return request(API_ENDPOINTS.MAP_LAYERS_BUILDINGS, {
+      method: 'POST',
+      body: {
+        bounds,
+        limit,
+      },
+    });
+  },
+
+  /**
+   * 获取道路图层
+   * @param {Object} params
+   * @param {Object} params.bounds - 可选的边界框 {minLat,maxLat,minLon,maxLon}
+   * @param {number} params.buffer - 道路缓冲宽度
+   * @param {number} params.limit - 返回数量
+   * @returns {Promise<Object>}
+   */
+  getRoadLayers: async ({ bounds, buffer, limit } = {}) => {
+    return request(API_ENDPOINTS.MAP_LAYERS_ROADS, {
+      method: 'POST',
+      body: {
+        bounds,
+        buffer,
+        limit,
       },
     });
   },

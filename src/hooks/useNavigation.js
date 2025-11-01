@@ -1,97 +1,71 @@
 /**
  * 导航管理 Hook
- * 管理路线生成、选择和导航状态
+ * 负责与地图服务协作生成路线，维护导航状态
  */
 
 import { useState, useCallback } from 'react';
-import { generateRoute, generateAllRoutes, ROUTE_TYPES } from '../services/mapService';
+import { buildRoute } from '../services/mapService';
 
-/**
- * 导航管理 Hook
- * @returns {Object} 导航状态和方法
- */
 export const useNavigation = () => {
   const [currentRoute, setCurrentRoute] = useState(null);
-  const [availableRoutes, setAvailableRoutes] = useState([]);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState(null);
 
-  /**
-   * 开始导航
-   * @param {Object} start - 起点
-   * @param {Object} end - 终点
-   * @param {number} routeType - 路线类型（可选，默认为最快路线）
-   */
-  const startNavigation = useCallback((start, end, routeType = ROUTE_TYPES.FASTEST) => {
-    console.log('🗺️ 开始导航:', { start, end, routeType });
-    
-    // 生成所有可选路线
-    const routes = generateAllRoutes(start, end);
-    setAvailableRoutes(routes);
-    
-    // 设置当前路线
-    const route = routes[routeType];
-    setCurrentRoute(route);
-    setIsNavigating(true);
-    
-    return route;
-  }, []);
+  const buildAndStoreRoute = useCallback(
+    async (start, end, { silent = false, mode } = {}) => {
+      if (!silent) {
+        setRouteLoading(true);
+      }
+      setRouteError(null);
 
-  /**
-   * 切换路线
-   * @param {number} routeType - 路线类型
-   */
-  const switchRoute = useCallback((routeType) => {
-    if (!currentRoute) {
-      console.warn('没有正在进行的导航');
-      return;
-    }
+      try {
+        const route = await buildRoute(start, end, { mode });
+        setCurrentRoute(route);
+        return route;
+      } catch (error) {
+        const message = error?.message || '路线规划失败';
+        setRouteError(message);
+        console.warn('[useNavigation] 构建路线失败:', message);
+        return null;
+      } finally {
+        if (!silent) {
+          setRouteLoading(false);
+        }
+      }
+    },
+    [],
+  );
 
-    console.log('🗺️ 切换路线:', routeType);
-    
-    const route = generateRoute(currentRoute.start, currentRoute.end, routeType);
-    setCurrentRoute(route);
-    
-    return route;
-  }, [currentRoute]);
+  const startNavigation = useCallback(
+    async (start, end, options) => {
+      const route = await buildAndStoreRoute(start, end, options);
+      if (route) {
+        setIsNavigating(true);
+      }
+      return route;
+    },
+    [buildAndStoreRoute],
+  );
 
-  /**
-   * 停止导航
-   */
+  const updateRoute = useCallback(
+    async (start, end, options = {}) => buildAndStoreRoute(start, end, options),
+    [buildAndStoreRoute],
+  );
+
   const stopNavigation = useCallback(() => {
-    console.log('🗺️ 停止导航');
-    setCurrentRoute(null);
-    setAvailableRoutes([]);
     setIsNavigating(false);
+    setCurrentRoute(null);
+    setRouteError(null);
   }, []);
-
-  /**
-   * 重新计算路线（例如用户偏离路线时）
-   * @param {Object} newStart - 新的起点
-   */
-  const recalculateRoute = useCallback((newStart) => {
-    if (!currentRoute) {
-      console.warn('没有正在进行的导航');
-      return;
-    }
-
-    console.log('🗺️ 重新计算路线');
-    
-    const route = generateRoute(newStart, currentRoute.end, currentRoute.routeType);
-    setCurrentRoute(route);
-    
-    return route;
-  }, [currentRoute]);
 
   return {
-    // 状态
     currentRoute,
-    availableRoutes,
     isNavigating,
-    
-    // 方法
+    routeLoading,
+    routeError,
     startNavigation,
-    switchRoute,
+    updateRoute,
     stopNavigation,
-    recalculateRoute,
   };
 };

@@ -1,180 +1,320 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { View, Modal, TouchableOpacity, Text, StyleSheet, Dimensions, Platform } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import React, { useEffect, useMemo, useRef } from 'react';
+import {
+  View,
+  Modal,
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
+import MapView, { Marker, Polygon, Polyline, Circle } from 'react-native-maps';
 import MapDrawer from './MapDrawer';
+import { useMap } from '../../hooks';
 import { MAP_CONFIG } from '../../config/mapConfig';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-// 地图弹窗宽度（设计稿要求）
 const MAP_WIDTH = 355;
-// 计算Header的高度 (状态栏 + Header内容)
 const HEADER_HEIGHT = Platform.OS === 'ios' ? 100 : 80;
-// QuickActions 的高度：按钮33px + chatInputHeight动态值 + 上下间距(28px bottom + 一些padding)
-// 底部到 QuickActions 上边缘的距离
-const BOTTOM_TO_QUICK_ACTIONS = 20; // 地图底部距离 QuickActions 上边缘的小间距
+const QUICK_ACTIONS_HEIGHT = 33;
+const QUICK_ACTIONS_MARGIN = 28;
+const BOTTOM_TO_QUICK_ACTIONS = 20;
 
-/**
- * 地图弹出窗组件 - 带候选点的版本
- * 显示谷歌地图，支持拖动和缩放，显示候选点标记
- * @param {boolean} visible - 是否显示弹窗
- * @param {Function} onClose - 关闭弹窗的回调
- * @param {Object} initialRegion - 地图初始区域
- * @param {Array} markers - 地图标记点数组
- * @param {number} chatInputHeight - ChatInput组件的高度，用于动态调整位置
- */
 const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeight = 60 }) => {
   const mapRef = useRef(null);
-  const [drawerVisible, setDrawerVisible] = useState(false);
-  const [selectedBuilding, setSelectedBuilding] = useState(null);
+  const hasLoadedLayersRef = useRef(false);
+  const lastLoadedRegionKeyRef = useRef(null);
 
-  // 计算底部距离：ChatInput高度 + QuickActions高度(33px) + 间距(28px bottom + 5px gap)
-  const bottomDistance = chatInputHeight + 33 + 28 + BOTTOM_TO_QUICK_ACTIONS;
+  const {
+    drawerVisible,
+    selectedBuilding,
+    buildingPolygons,
+    roadPolygons,
+    layersLoading,
+    layersError,
+    destination,
+    userLocation,
+    locationLoading,
+    locationError,
+    routeCoordinates,
+    routeSummary,
+    routeLoading,
+    routeError,
+    isNavigating,
+    computedRegion,
+    handleMapReady,
+    handleMapError,
+    handleMarkerPress,
+    handleDrawerClose,
+    loadLayers,
+    fetchLocation,
+    startNavigation,
+    stopNavigation,
+  } = useMap({
+    markers,
+    initialRegion,
+    enableLocationTracking: false,
+    useMockLocation: false,
+  });
 
-  // 默认区域（香港浸会大学）
-  const defaultRegion = MAP_CONFIG.defaultCenter;
-  // 计算以所有候选点为中心的区域（如果有候选点）
-  const centerRegion = useMemo(() => {
-    if (markers && markers.length > 0) {
-      // 收集所有有效坐标
-      const coords = markers.map(m => m.coordinate || { latitude: m.latitude, longitude: m.longitude })
-        .filter(c => c && typeof c.latitude === 'number' && typeof c.longitude === 'number');
+  const bottomDistance = useMemo(
+    () => chatInputHeight + QUICK_ACTIONS_HEIGHT + QUICK_ACTIONS_MARGIN + BOTTOM_TO_QUICK_ACTIONS,
+    [chatInputHeight],
+  );
 
-      if (coords.length === 0) return initialRegion || defaultRegion;
-
-      const latSum = coords.reduce((s, c) => s + c.latitude, 0);
-      const lngSum = coords.reduce((s, c) => s + c.longitude, 0);
-      const avgLat = latSum / coords.length;
-      const avgLng = lngSum / coords.length;
-
-      // 计算跨度（简单算法：基于经纬差的最大值，带一点padding）
-      const latVals = coords.map(c => c.latitude);
-      const lngVals = coords.map(c => c.longitude);
-      const latRange = Math.max(...latVals) - Math.min(...latVals);
-      const lngRange = Math.max(...lngVals) - Math.min(...lngVals);
-      const paddingFactor = 1.3; // 放大以避免marker紧贴边缘
-      const latitudeDelta = Math.max((latRange || 0.005) * paddingFactor, defaultRegion.latitudeDelta);
-      const longitudeDelta = Math.max((lngRange || 0.005) * paddingFactor, defaultRegion.longitudeDelta);
-
-      return {
-        latitude: avgLat,
-        longitude: avgLng,
-        latitudeDelta,
-        longitudeDelta,
-      };
-    }
-
-    return initialRegion || defaultRegion;
-  }, [markers, initialRegion]);
-
-  // 当 visible 或 markers 变化时，将地图移动到计算好的中心位置
   useEffect(() => {
-    if (visible && mapRef.current && centerRegion) {
+    if (visible) {
+      const regionToLoad = initialRegion || MAP_CONFIG.defaultCenter;
+      const regionKey = `${regionToLoad.latitude ?? ''}_${regionToLoad.longitude ?? ''}_${regionToLoad.latitudeDelta ?? ''}_${regionToLoad.longitudeDelta ?? ''}`;
+
+      if (!hasLoadedLayersRef.current || lastLoadedRegionKeyRef.current !== regionKey) {
+        loadLayers(regionToLoad);
+        fetchLocation();
+        hasLoadedLayersRef.current = true;
+        lastLoadedRegionKeyRef.current = regionKey;
+      }
+    } else {
+      hasLoadedLayersRef.current = false;
+      lastLoadedRegionKeyRef.current = null;
+      stopNavigation();
+    }
+  }, [visible, initialRegion, loadLayers, fetchLocation, stopNavigation]);
+
+  useEffect(() => {
+    if (visible && mapRef.current && computedRegion) {
       try {
-        mapRef.current.animateToRegion(centerRegion, 300);
-      } catch (e) {
-        // some platforms may throw if animateToRegion called too early
-        console.warn('[MapModal] animateToRegion failed:', e);
+        mapRef.current.animateToRegion(computedRegion, 360);
+      } catch (error) {
+        console.warn('[MapModal] animateToRegion 失败:', error);
       }
     }
-  }, [visible, centerRegion]);
+  }, [visible, computedRegion]);
 
-  // 处理关闭
+  useEffect(() => {
+    if (!visible || !mapRef.current) return;
+    if (routeCoordinates.length < 2) return;
+
+    try {
+      mapRef.current.fitToCoordinates(routeCoordinates, {
+        edgePadding: { top: 120, right: 72, bottom: 240, left: 72 },
+        animated: true,
+      });
+    } catch (error) {
+      console.warn('[MapModal] fitToCoordinates 失败:', error);
+    }
+  }, [visible, routeCoordinates]);
+
   const handleClose = () => {
+    stopNavigation();
     onClose();
+  };
+
+  const handleStartNavigation = async () => {
+    if (!destination) {
+      return;
+    }
+
+    try {
+      await startNavigation(destination);
+    } catch (error) {
+      console.warn('[MapModal] 导航启动失败:', error?.message || error);
+    }
   };
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      transparent={true}
+      transparent
       onRequestClose={handleClose}
       statusBarTranslucent
     >
       <View style={styles.overlay}>
-        {/* 地图容器 - 宽度355px，居中显示 */}
-        <View style={[
-          styles.modalContainer,
-          {
-            top: HEADER_HEIGHT,
-            bottom: bottomDistance,
-          }
-        ]}>
-          {/* 关闭按钮 */}
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={handleClose}
-          >
+        <View
+          style={[
+            styles.modalContainer,
+            {
+              top: HEADER_HEIGHT,
+              bottom: bottomDistance,
+            },
+          ]}
+        >
+          <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
             <Text style={styles.closeButtonText}>✕</Text>
           </TouchableOpacity>
 
-          {/* 地图视图 - 带候选点的实现 */}
           <MapView
             ref={mapRef}
             style={styles.map}
-            initialRegion={centerRegion}
-            showsUserLocation={false}
+            initialRegion={computedRegion || initialRegion || MAP_CONFIG.defaultCenter}
             showsMyLocationButton={false}
             showsCompass={false}
-            showsScale={false}
-            showsBuildings={false}
-            showsTraffic={false}
             showsIndoors={false}
-            zoomEnabled={true}
-            scrollEnabled={true}
+            showsTraffic={false}
+            showsBuildings
+            zoomEnabled
+            scrollEnabled
             rotateEnabled={false}
             pitchEnabled={false}
-            onMapReady={() => {
-              console.log('✅ 地图加载完成，centerRegion:', centerRegion);
-            }}
-            onMapError={(error) => {
-              console.error('❌ 地图加载错误:', error);
-            }}
+            onMapReady={handleMapReady}
+            onMapError={handleMapError}
           >
-            {/* 渲染候选点 */}
-            {markers && markers.map((marker, idx) => {
-              const coordinate = marker.coordinate || { latitude: marker.latitude, longitude: marker.longitude };
-              if (!coordinate || typeof coordinate.latitude !== 'number' || typeof coordinate.longitude !== 'number') return null;
+            {roadPolygons.map((polygon) => (
+              <Polygon
+                key={polygon.id}
+                coordinates={polygon.coordinates}
+                holes={polygon.holes}
+                strokeColor="rgba(120,120,120,0.85)"
+                strokeWidth={2}
+                fillColor="rgba(160,160,160,0.35)"
+                zIndex={1}
+              />
+            ))}
+
+            {buildingPolygons.map((polygon) => (
+              <Polygon
+                key={polygon.id}
+                coordinates={polygon.coordinates}
+                holes={polygon.holes}
+                strokeColor="rgba(255,140,0,0.9)"
+                strokeWidth={2}
+                fillColor="rgba(255,165,0,0.35)"
+                zIndex={2}
+              />
+            ))}
+
+            {routeCoordinates.length > 1 && (
+              <Polyline
+                coordinates={routeCoordinates}
+                strokeColor="#007AFF"
+                strokeWidth={5}
+                zIndex={3}
+              />
+            )}
+
+            {markers.map((marker, idx) => {
+              const coordinate = marker.coordinate || {
+                latitude: marker.latitude,
+                longitude: marker.longitude,
+              };
+              if (
+                !coordinate ||
+                !isFinite(coordinate.latitude) ||
+                !isFinite(coordinate.longitude)
+              ) {
+                return null;
+              }
 
               return (
                 <Marker
-                  key={marker.id || `m-${idx}`}
+                  key={marker.id || `marker-${idx}`}
                   coordinate={coordinate}
                   title={marker.title}
                   description={marker.description}
-                  onPress={() => {
-                    console.log('Marker clicked:', marker);
-                    const buildingData = {
-                      title: marker.title,
-                      position: `${coordinate.latitude.toFixed(6)}, ${coordinate.longitude.toFixed(6)}`,
-                      description: marker.description,
-                      features: marker.type || '地点',
-                      ...marker,
-                    };
-                    console.log('Setting selectedBuilding:', buildingData);
-                    setSelectedBuilding(buildingData);
-                    setDrawerVisible(true);
-                    console.log('Drawer should now be visible');
-                  }}
+                  onPress={() => handleMarkerPress(marker)}
                 />
               );
             })}
+
+            {destination && (
+              <Marker
+                coordinate={{
+                  latitude: destination.latitude,
+                  longitude: destination.longitude,
+                }}
+                title={destination.name || '目的地'}
+                pinColor="#FF3B30"
+              />
+            )}
+
+            {userLocation && (
+              <Marker
+                coordinate={{
+                  latitude: userLocation.latitude,
+                  longitude: userLocation.longitude,
+                }}
+                title="当前位置"
+                pinColor="#007AFF"
+              />
+            )}
+
+            {userLocation?.accuracy && (
+              <Circle
+                center={{
+                  latitude: userLocation.latitude,
+                  longitude: userLocation.longitude,
+                }}
+                radius={userLocation.accuracy}
+                fillColor="rgba(0,122,255,0.1)"
+                strokeColor="rgba(0,122,255,0.2)"
+              />
+            )}
           </MapView>
 
-          {/* 地图底部抽屉 */}
+          <View style={styles.controlsContainer}>
+            <TouchableOpacity
+              style={[styles.controlButton, locationLoading && styles.controlButtonDisabled]}
+              disabled={locationLoading}
+              onPress={() => fetchLocation()}
+            >
+              <Text style={styles.controlButtonText}>
+                {locationLoading ? '定位中...' : '更新定位'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.controlButton,
+                (!destination || routeLoading) && styles.controlButtonDisabled,
+              ]}
+              disabled={!destination || routeLoading}
+              onPress={handleStartNavigation}
+            >
+              <Text style={styles.controlButtonText}>
+                {isNavigating ? '更新导航' : '开始导航'}
+              </Text>
+            </TouchableOpacity>
+
+            {isNavigating && (
+              <TouchableOpacity style={[styles.controlButton, styles.stopButton]} onPress={stopNavigation}>
+                <Text style={styles.controlButtonText}>结束导航</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {(routeSummary || routeError) && (
+            <View style={styles.routeInfoContainer}>
+              {routeSummary && (
+                <>
+                  <Text style={styles.routeInfoText}>距离：{routeSummary.distanceText}</Text>
+                  <Text style={styles.routeInfoText}>预计耗时：{routeSummary.durationText}</Text>
+                  {routeSummary.note && (
+                    <Text style={styles.routeInfoText}>提示：{routeSummary.note}</Text>
+                  )}
+                </>
+              )}
+              {routeError && <Text style={[styles.routeInfoText, styles.errorText]}>{routeError}</Text>}
+            </View>
+          )}
+
+          {(locationError || layersError) && (
+            <View style={styles.errorBanner}>
+              <Text style={styles.errorText}>{locationError || layersError}</Text>
+            </View>
+          )}
+
           {drawerVisible && selectedBuilding && (
             <MapDrawer
               visible={drawerVisible}
               buildingInfo={selectedBuilding}
-              onClose={() => {
-                console.log('Drawer onClose called');
-                setDrawerVisible(false);
-                setSelectedBuilding(null);
-              }}
+              onClose={handleDrawerClose}
             />
           )}
-          {console.log('Drawer render check:', { drawerVisible, selectedBuilding })}
+
+          {(layersLoading || routeLoading) && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -226,6 +366,70 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  controlsContainer: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    zIndex: 20,
+    gap: 8,
+  },
+  controlButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 122, 255, 0.9)',
+  },
+  controlButtonDisabled: {
+    backgroundColor: 'rgba(0, 122, 255, 0.45)',
+  },
+  stopButton: {
+    backgroundColor: 'rgba(255, 59, 48, 0.9)',
+  },
+  controlButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  routeInfoContainer: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderRadius: 16,
+    zIndex: 30,
+  },
+  routeInfoText: {
+    color: '#fff',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  errorText: {
+    color: '#FFCDD2',
+  },
+  errorBanner: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(214, 45, 32, 0.85)',
+    borderRadius: 12,
+    zIndex: 25,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    zIndex: 40,
   },
 });
 

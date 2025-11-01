@@ -8,3 +8,4 @@ export * from './imageService';
 export * from './voiceService';
 export * from './mapService';
 export * from './locationService';
+export * from './navigationDataService';

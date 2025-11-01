@@ -3,45 +3,74 @@
  * 处理用户位置获取和位置相关的业务逻辑
  */
 
-// 暂时注释掉 expo-location 的导入，使用模拟位置
-// import * as Location from 'expo-location';
+import { Platform } from 'react-native';
+import * as Location from 'expo-location';
 
 /**
- * 获取用户当前位置
- * 注意：当前使用模拟位置，如需真实位置请取消注释上面的 import 并修改此函数
- * @returns {Promise<Object>} 包含经纬度的位置对象
+ * 获取用户当前位置（使用 expo-location）
+ * @param {Object} options - 选项
+ * @param {number} options.timeout - 超时时间（毫秒）
+ * @returns {Promise<Object>} 位置对象
  */
-export const getUserLocation = async () => {
+export const getUserLocation = async (options = {}) => {
+  const { timeout = 15000 } = options;
+
   try {
-    console.log('📍 使用模拟位置（expo-location 未启用）');
-    
-    // 暂时返回 null，让调用方使用 getMockLocation
-    return null;
-    
-    /* 真实位置获取代码（需要 expo-location）
-    // 请求位置权限
+    // 请求定位权限
     const { status } = await Location.requestForegroundPermissionsAsync();
-    
+    console.log('📍 定位权限状态:', status);
+
     if (status !== 'granted') {
-      console.warn('位置权限被拒绝');
-      return null;
+      console.warn('❌ 定位权限被拒绝');
+      throw new Error('定位权限被拒绝');
     }
 
-    // 获取当前位置
+    console.log('📍 开始获取位置，超时时间:', timeout, 'ms');
+
+    // 获取当前位置（带超时）
     const location = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
+      timeoutMs: timeout,
+    });
+
+    console.log('✅ 获取位置成功:', {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      accuracy: location.coords.accuracy,
     });
 
     return {
       latitude: location.coords.latitude,
       longitude: location.coords.longitude,
       accuracy: location.coords.accuracy,
-      timestamp: location.timestamp,
     };
-    */
   } catch (error) {
-    console.error('获取位置失败:', error);
-    return null;
+    console.error('❌ 获取位置失败:', error.message);
+
+    // 降级：尝试使用 Web Geolocation API
+    if (Platform.OS === 'web' && navigator.geolocation) {
+      console.log('🌐 尝试使用 Web Geolocation API');
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            console.log('✅ Web Geolocation 成功');
+            resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            });
+          },
+          (err) => {
+            console.error('❌ Web Geolocation 失败:', err.message);
+            reject(new Error(`定位失败: ${err.message}`));
+          },
+          { enableHighAccuracy: false, timeout: timeout, maximumAge: 0 },
+        );
+      });
+    }
+
+    // 非 Web 环境，抛出错误（不再自动回退到 Mock）
+    throw error;
   }
 };
 
@@ -88,14 +117,18 @@ export const calculateDistance = (point1, point2) => {
  */
 export const checkLocationPermission = async () => {
   try {
-    // 暂时返回 false，因为未启用 expo-location
-    console.log('📍 位置权限检查（模拟模式）');
-    return false;
+    const { status, canAskAgain } = await Location.getForegroundPermissionsAsync();
     
-    /* 真实位置权限检查（需要 expo-location）
-    const { status } = await Location.getForegroundPermissionsAsync();
-    return status === 'granted';
-    */
+    if (status === 'granted') {
+      return true;
+    }
+
+    if (status === 'undetermined' && canAskAgain) {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      return permission.status === 'granted';
+    }
+
+    return false;
   } catch (error) {
     console.error('检查位置权限失败:', error);
     return false;
@@ -109,14 +142,9 @@ export const checkLocationPermission = async () => {
  */
 export const watchUserLocation = async (callback) => {
   try {
-    console.log('📍 位置监听（模拟模式，未启用）');
-    // 暂时返回 null，因为未启用 expo-location
-    return null;
+    const permission = await Location.requestForegroundPermissionsAsync();
     
-    /* 真实位置监听（需要 expo-location）
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    
-    if (status !== 'granted') {
+    if (!permission || permission.status !== 'granted') {
       console.warn('位置权限被拒绝');
       return null;
     }
@@ -124,21 +152,23 @@ export const watchUserLocation = async (callback) => {
     const subscription = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
-        timeInterval: 5000, // 5秒更新一次
-        distanceInterval: 10, // 移动10米更新一次
+        timeInterval: 5000,
+        distanceInterval: 10,
       },
       (location) => {
-        callback({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy,
-          timestamp: location.timestamp,
-        });
-      }
+        if (location?.coords) {
+          callback({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            accuracy: location.coords.accuracy,
+            timestamp: location.timestamp,
+            isMock: location.mocked || false,
+          });
+        }
+      },
     );
 
     return subscription;
-    */
   } catch (error) {
     console.error('监听位置失败:', error);
     return null;

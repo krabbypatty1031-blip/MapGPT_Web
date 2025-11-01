@@ -40,7 +40,7 @@ export const useChat = () => {
         {}, // context
         // onChunk 回调
         (chunk) => {
-          console.log('[useChat] 收到数据块:', chunk);
+          // console.log('[useChat] 收到数据块:', chunk);
           
           // 处理 route action 的特殊响应
           if (action === 'route' && chunk.done && Array.isArray(chunk.locations)) {
@@ -76,7 +76,7 @@ export const useChat = () => {
               accumulatedTextRef.current += contentToAdd;
               updateCount++;
               
-              console.log(`[useChat] 更新文本 (${updateCount}):`, accumulatedTextRef.current);
+              // console.log(`[useChat] 更新文本 (${updateCount}):`, accumulatedTextRef.current);
               
               // 第一次收到内容时，创建AI消息并设置 isLoading 为 false
               if (updateCount === 1) {

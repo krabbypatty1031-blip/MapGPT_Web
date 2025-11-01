@@ -1,225 +1,409 @@
 /**
  * 地图服务
- * 处理路线生成、地图数据处理等业务逻辑
+ * 负责图层数据、路线构建、标记处理等逻辑
  */
 
+import { MAP_CONFIG } from '../config/mapConfig';
 import { calculateDistance } from './locationService';
+import {
+  fetchBuildingPolygons,
+  fetchRoadBuffers,
+  fetchRoutePath,
+} from './navigationDataService';
 
-/**
- * 路线类型枚举
- */
-export const ROUTE_TYPES = {
-  FASTEST: 0, // 时间最少
-  SHORTEST: 1, // 距离最短
-  ALTERNATIVE: 2, // 备选方案
+const BUILDING_LIMIT = 200;
+const ROAD_LIMIT = 400;
+const ROAD_BUFFER_DEFAULT = 8;
+
+let buildingLayerUnavailable = false;
+let roadLayerUnavailable = false;
+
+const parseGeometry = (geometry) => {
+  if (!geometry) return null;
+
+  if (typeof geometry === 'string') {
+    try {
+      return JSON.parse(geometry);
+    } catch (error) {
+      console.warn('[mapService] 无法解析几何字符串:', error);
+      return null;
+    }
+  }
+
+  if (geometry.type && geometry.coordinates) {
+    return geometry;
+  }
+
+  if (geometry.geometry) {
+    return parseGeometry(geometry.geometry);
+  }
+
+  return null;
 };
 
-/**
- * 路线颜色映射
- */
-export const ROUTE_COLORS = {
-  [ROUTE_TYPES.FASTEST]: '#0090F0',
-  [ROUTE_TYPES.SHORTEST]: '#00C853',
-  [ROUTE_TYPES.ALTERNATIVE]: '#FF6B00',
+const toLatLng = (pair) => {
+  if (!Array.isArray(pair) || pair.length < 2) return null;
+  let [lng, lat] = pair;
+
+  if (!isFinite(lat) || !isFinite(lng)) return null;
+
+  if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+    const tmp = lat;
+    lat = lng;
+    lng = tmp;
+  }
+
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+
+  return { latitude: lat, longitude: lng };
 };
 
-/**
- * 生成路线坐标点
- * @param {Object} start - 起点 {latitude, longitude}
- * @param {Object} end - 终点 {latitude, longitude}
- * @param {number} routeType - 路线类型
- * @returns {Object} 路线信息
- */
-export const generateRoute = (start, end, routeType = ROUTE_TYPES.FASTEST) => {
-  // 计算直线距离
-  const distance = calculateDistance(start, end);
-  
-  // 根据路线类型生成不同的路径点
-  const routes = {
-    [ROUTE_TYPES.FASTEST]: generateFastestRoute(start, end),
-    [ROUTE_TYPES.SHORTEST]: generateShortestRoute(start, end),
-    [ROUTE_TYPES.ALTERNATIVE]: generateAlternativeRoute(start, end),
-  };
+const convertPolygonCoordinates = (coords) => {
+  if (!Array.isArray(coords) || coords.length === 0) {
+    return null;
+  }
 
-  const coordinates = routes[routeType];
-  
-  // 计算估计时间和距离
-  const routeDistance = calculateRouteDistance(coordinates);
-  const estimatedTime = calculateEstimatedTime(routeDistance, routeType);
+  const outerRing = coords[0].map(toLatLng).filter(Boolean);
+  if (outerRing.length < 3) {
+    return null;
+  }
+
+  const holes = coords
+    .slice(1)
+    .map((ring) => ring.map(toLatLng).filter(Boolean))
+    .filter((ring) => ring.length >= 3);
+
+  return { coordinates: outerRing, holes };
+};
+
+const geometryToPolygons = (geometry) => {
+  const parsed = parseGeometry(geometry);
+  if (!parsed) return [];
+
+  if (parsed.type === 'Polygon') {
+    const polygon = convertPolygonCoordinates(parsed.coordinates);
+    return polygon ? [polygon] : [];
+  }
+
+  if (parsed.type === 'MultiPolygon') {
+    return parsed.coordinates.map(convertPolygonCoordinates).filter(Boolean);
+  }
+
+  return [];
+};
+
+const collectAllCoordinates = (polygons) => {
+  const coords = [];
+  polygons.forEach((p) => {
+    if (Array.isArray(p.coordinates)) {
+      coords.push(...p.coordinates);
+    }
+    if (Array.isArray(p.holes)) {
+      p.holes.forEach((hole) => {
+        if (Array.isArray(hole)) coords.push(...hole);
+      });
+    }
+  });
+  return coords.filter((c) => c && isFinite(c.latitude) && isFinite(c.longitude));
+};
+
+const computeBoundsFromPolygons = (polygons) => {
+  const coords = collectAllCoordinates(polygons);
+  if (coords.length < 2) return null;
+
+  const latitudes = coords.map((c) => c.latitude);
+  const longitudes = coords.map((c) => c.longitude);
+
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLon = Math.min(...longitudes);
+  const maxLon = Math.max(...longitudes);
 
   return {
-    coordinates,
-    start,
-    end,
-    routeType,
-    distance: routeDistance,
-    estimatedTime,
-    color: ROUTE_COLORS[routeType],
+    sw: { latitude: minLat, longitude: minLon },
+    ne: { latitude: maxLat, longitude: maxLon },
   };
 };
 
-/**
- * 生成最快路线（时间最少）
- * @private
- */
-const generateFastestRoute = (start, end) => {
-  return [
-    start,
-    { 
-      latitude: start.latitude + 0.0005, 
-      longitude: start.longitude + 0.001 
-    },
-    { 
-      latitude: start.latitude + 0.001, 
-      longitude: start.longitude + 0.0015 
-    },
-    { 
-      latitude: end.latitude - 0.0003, 
-      longitude: end.longitude - 0.0002 
-    },
-    end,
-  ];
+const computeBoundsFromRegion = (region) => {
+  if (!region) return null;
+
+  const latitudeDelta = region.latitudeDelta || 0.01;
+  const longitudeDelta = region.longitudeDelta || 0.01;
+
+  return {
+    minLat: region.latitude - latitudeDelta,
+    maxLat: region.latitude + latitudeDelta,
+    minLon: region.longitude - longitudeDelta,
+    maxLon: region.longitude + longitudeDelta,
+  };
 };
 
-/**
- * 生成最短路线（距离最短）
- * @private
- */
-const generateShortestRoute = (start, end) => {
-  return [
-    start,
-    { 
-      latitude: start.latitude + 0.0008, 
-      longitude: start.longitude + 0.0008 
-    },
-    { 
-      latitude: end.latitude - 0.0002, 
-      longitude: end.longitude - 0.0002 
-    },
-    end,
-  ];
+const normaliseRouteCoordinates = (pairs) =>
+  pairs
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return null;
+      let [lng, lat] = pair;
+      if (!isFinite(lat) || !isFinite(lng)) return null;
+      if (Math.abs(lat) > 90 && Math.abs(lng) <= 90) {
+        const tmp = lat;
+        lat = lng;
+        lng = tmp;
+      }
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+      return { latitude: lat, longitude: lng };
+    })
+    .filter(Boolean);
+
+const fallbackRoute = (start, end) => {
+  return {
+    coordinates: [
+      start,
+      {
+        latitude: (start.latitude + end.latitude) / 2 + 0.0005,
+        longitude: (start.longitude + end.longitude) / 2,
+      },
+      end,
+    ],
+  };
 };
 
-/**
- * 生成备选路线（绕路）
- * @private
- */
-const generateAlternativeRoute = (start, end) => {
-  return [
-    start,
-    { 
-      latitude: start.latitude + 0.0003, 
-      longitude: start.longitude + 0.0012 
-    },
-    { 
-      latitude: start.latitude + 0.0008, 
-      longitude: start.longitude + 0.002 
-    },
-    { 
-      latitude: end.latitude - 0.0001, 
-      longitude: end.longitude + 0.0003 
-    },
-    end,
-  ];
+const parseRouteResponse = (data, start, end) => {
+  if (!data) return null;
+
+  if (Array.isArray(data.coordinates)) {
+    const coordinates = normaliseRouteCoordinates(data.coordinates);
+    if (coordinates.length > 1) {
+      return {
+        coordinates,
+        info: data.info || data.summary || null,
+      };
+    }
+  }
+
+  if (Array.isArray(data.features)) {
+    const lineFeature = data.features.find((feature) => {
+      const geometry = parseGeometry(feature.geometry);
+      return geometry && typeof geometry.type === 'string' && geometry.type.toLowerCase().includes('line');
+    });
+
+    if (lineFeature) {
+      const geometry = parseGeometry(lineFeature.geometry);
+      const coordinates = normaliseRouteCoordinates(geometry.coordinates || []);
+      const properties = lineFeature.properties || {};
+
+      if (coordinates.length > 1) {
+        return {
+          coordinates,
+          info: {
+            distance: properties.distance_m,
+            duration: properties.duration_s,
+            note: properties.note,
+            segments: properties.road_segments,
+          },
+        };
+      }
+    }
+  }
+
+  if (Array.isArray(data.paths) && data.paths.length > 0) {
+    const path = data.paths[0];
+    const coordinates = normaliseRouteCoordinates(path.points || []);
+    if (coordinates.length > 1) {
+      return {
+        coordinates,
+        info: {
+          distance: path.distance,
+          duration: path.duration,
+        },
+      };
+    }
+  }
+
+  return fallbackRoute(start, end);
 };
 
-/**
- * 计算路线总距离
- * @param {Array} coordinates - 路线坐标数组
- * @returns {number} 总距离（米）
- */
+const ensureDistance = (route) => {
+  if (!route) return null;
+  const routeDistance = calculateRouteDistance(route.coordinates);
+  if (!route.info) {
+    route.info = {};
+  }
+  if (!isFinite(route.info.distance)) {
+    route.info.distance = routeDistance;
+  }
+  if (!isFinite(route.info.duration)) {
+    route.info.duration = estimateDuration(routeDistance);
+  }
+  return route;
+};
+
+export const loadMapLayers = async ({
+  region,
+  bounds,
+  buildingLimit = BUILDING_LIMIT,
+  roadLimit = ROAD_LIMIT,
+  roadBuffer = ROAD_BUFFER_DEFAULT,
+} = {}) => {
+  const resolvedBounds = bounds || computeBoundsFromRegion(region || MAP_CONFIG.defaultCenter);
+
+  const shouldFetchBuildings = !buildingLayerUnavailable && buildingLimit !== 0;
+  const shouldFetchRoads = !roadLayerUnavailable && roadLimit !== 0;
+
+  const warnings = [];
+
+  let buildingFeatures = [];
+  if (shouldFetchBuildings) {
+    try {
+      const buildingData = await fetchBuildingPolygons(resolvedBounds);
+      buildingFeatures = Array.isArray(buildingData?.features) ? buildingData.features : [];
+    } catch (error) {
+      buildingLayerUnavailable = true;
+      console.warn('[mapService] 建筑图层接口不可用:', error?.message || error);
+      warnings.push('建筑图层暂不可用');
+    }
+  } else if (buildingLayerUnavailable) {
+    warnings.push('建筑图层暂不可用');
+  }
+
+  let roadFeatures = [];
+  if (shouldFetchRoads) {
+    try {
+      const roadData = await fetchRoadBuffers(roadBuffer);
+      roadFeatures = Array.isArray(roadData?.features) ? roadData.features : [];
+    } catch (error) {
+      roadLayerUnavailable = true;
+      console.warn('[mapService] 道路图层接口不可用:', error?.message || error);
+      warnings.push('道路图层暂不可用');
+    }
+  } else if (roadLayerUnavailable) {
+    warnings.push('道路图层暂不可用');
+  }
+
+  const buildings = buildingFeatures
+    .flatMap((feature, featureIndex) => {
+      const geometry = feature.geometry || feature.geom;
+      const polygons = geometryToPolygons(geometry);
+      return polygons.map((polygon, index) => ({
+        id: `building-${feature.id || feature.gid || featureIndex}-${index}`,
+        coordinates: polygon.coordinates,
+        holes: polygon.holes,
+      }));
+    })
+    .slice(0, buildingLimit);
+
+  const roads = roadFeatures
+    .flatMap((feature, featureIndex) => {
+      const geometry = feature.geometry || feature.geom;
+      const polygons = geometryToPolygons(geometry);
+      return polygons.map((polygon, index) => ({
+        id: `road-${feature.id || feature.gid || featureIndex}-${index}`,
+        coordinates: polygon.coordinates,
+        holes: polygon.holes,
+      }));
+    })
+    .slice(0, roadLimit);
+
+  const dataBounds = computeBoundsFromPolygons([...roads, ...buildings]);
+
+  return {
+    buildings,
+    roads,
+    bounds: dataBounds || null,
+    warnings,
+  };
+};
+
+export const buildRoute = async (start, end, { mode = 'custom' } = {}) => {
+  if (!start || !end) {
+    throw new Error('缺少路线的起点或终点');
+  }
+
+  try {
+    const data = await fetchRoutePath({
+      start: {
+        latitude: start.latitude,
+        longitude: start.longitude,
+        name: start.name,
+      },
+      end: {
+        latitude: end.latitude,
+        longitude: end.longitude,
+        name: end.name,
+      },
+      mode,
+    });
+
+    const parsed = parseRouteResponse(data, start, end);
+    return ensureDistance({
+      ...parsed,
+      start,
+      end,
+    });
+  } catch (error) {
+    console.warn('[mapService] 路线规划失败，使用回退路线:', error);
+    const route = fallbackRoute(start, end);
+    return ensureDistance({
+      ...route,
+      start,
+      end,
+      info: {
+        message: '使用简易路线（离线模式）',
+      },
+    });
+  }
+};
+
 export const calculateRouteDistance = (coordinates) => {
-  let totalDistance = 0;
-  
-  for (let i = 0; i < coordinates.length - 1; i++) {
-    totalDistance += calculateDistance(coordinates[i], coordinates[i + 1]);
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    return 0;
   }
-  
-  return totalDistance;
+
+  return coordinates.reduce((distance, point, index) => {
+    if (index === 0) return distance;
+    return distance + calculateDistance(coordinates[index - 1], point);
+  }, 0);
 };
 
-/**
- * 计算估计时间
- * @param {number} distance - 距离（米）
- * @param {number} routeType - 路线类型
- * @returns {number} 估计时间（分钟）
- */
-export const calculateEstimatedTime = (distance, routeType) => {
-  // 平均步行速度：约 5 km/h = 83.33 m/min
-  const walkingSpeed = 83.33;
-  
-  // 不同路线类型的速度系数
-  const speedFactors = {
-    [ROUTE_TYPES.FASTEST]: 1.2, // 较快
-    [ROUTE_TYPES.SHORTEST]: 1.0, // 正常
-    [ROUTE_TYPES.ALTERNATIVE]: 0.9, // 较慢
-  };
-  
-  const effectiveSpeed = walkingSpeed * (speedFactors[routeType] || 1.0);
-  return Math.round(distance / effectiveSpeed);
+const estimateDuration = (distance) => {
+  if (!isFinite(distance)) return null;
+  const walkingSpeedMetersPerSecond = 1.35; // 约 4.86km/h，供校园步行参考
+  return Math.round(distance / walkingSpeedMetersPerSecond);
 };
 
-/**
- * 生成所有可选路线
- * @param {Object} start - 起点
- * @param {Object} end - 终点
- * @returns {Array} 路线数组
- */
-export const generateAllRoutes = (start, end) => {
-  return [
-    generateRoute(start, end, ROUTE_TYPES.FASTEST),
-    generateRoute(start, end, ROUTE_TYPES.SHORTEST),
-    generateRoute(start, end, ROUTE_TYPES.ALTERNATIVE),
-  ];
-};
-
-/**
- * 格式化距离显示
- * @param {number} distance - 距离（米）
- * @returns {string} 格式化后的距离
- */
 export const formatDistance = (distance) => {
-  if (typeof distance !== 'number' || isNaN(distance)) {
-    return '未知距离';
-  }
-  
-  if (distance < 1000) {
-    return `${Math.round(distance)}米`;
-  }
+  if (!isFinite(distance)) return '未知距离';
+  if (distance < 1000) return `${Math.round(distance)}米`;
   return `${(distance / 1000).toFixed(1)}公里`;
 };
 
-/**
- * 格式化时间显示
- * @param {number} minutes - 时间（分钟）
- * @returns {string} 格式化后的时间
- */
-export const formatTime = (minutes) => {
-  if (minutes < 60) {
-    return `${minutes}分钟`;
-  }
+export const formatDuration = (seconds) => {
+  if (!isFinite(seconds)) return '未知时间';
+  if (seconds < 60) return `${Math.round(seconds)}秒`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟`;
   const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`;
+  const remain = minutes % 60;
+  return remain > 0 ? `${hours}小时${remain}分钟` : `${hours}小时`;
 };
 
-/**
- * 处理标记点数据
- * @param {Object} marker - 原始标记数据
- * @returns {Object} 处理后的标记数据
- */
 export const processMarkerData = (marker) => {
-  // 确保坐标存在且为数字
-  const latitude = typeof marker.latitude === 'number' ? marker.latitude : 0;
-  const longitude = typeof marker.longitude === 'number' ? marker.longitude : 0;
-  
+  if (!marker) return null;
+
+  const latitude = typeof marker.latitude === 'number' ? marker.latitude : marker?.coordinate?.latitude;
+  const longitude = typeof marker.longitude === 'number' ? marker.longitude : marker?.coordinate?.longitude;
+
   return {
     title: marker.title || '建筑物',
-    position: marker.position || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+    position:
+      typeof latitude === 'number' && typeof longitude === 'number'
+        ? `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+        : '未知位置',
     features: marker.features || marker.description || '暂无特点信息',
     description: marker.description,
-    latitude: latitude,
-    longitude: longitude,
+    latitude,
+    longitude,
     ...marker,
   };
 };
+

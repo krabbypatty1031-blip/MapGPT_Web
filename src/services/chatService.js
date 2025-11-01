@@ -19,7 +19,13 @@ import { ChatAPI, API_BASE_URL, API_ENDPOINTS } from './api';
  * @returns {Promise<void>}
  */
 export const sendMessage = async (message, sessionId = null, action = null, images = [], context = {}, onChunk, onComplete, onError) => {
-  console.log('[chatService] sendMessage 调用:', { message, sessionId, action, images, context });
+  console.log('[chatService] sendMessage 调用:', { 
+    messageLength: message?.length, 
+    sessionId, 
+    action, 
+    imageCount: images?.length,
+    hasContext: !!Object.keys(context).length,
+  });
 
   try {
     const requestBody = {
@@ -31,7 +37,7 @@ export const sendMessage = async (message, sessionId = null, action = null, imag
       timestamp: new Date().toISOString(),
     };
 
-    console.log('[chatService] 发送请求:', requestBody);
+    console.log('[chatService] 发送请求到:', API_ENDPOINTS.CHAT_SEND);
 
     const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.CHAT_SEND}`, {
       method: 'POST',
@@ -47,7 +53,8 @@ export const sendMessage = async (message, sessionId = null, action = null, imag
 
     // 获取完整的响应文本
     const responseText = await response.text();
-    console.log('[chatService] 收到完整响应:', responseText);
+    const lineCount = responseText.split('\n').length;
+    console.log('[chatService] 收到响应，行数:', lineCount);
 
     // 解析 SSE 格式的数据
     const lines = responseText.split('\n');
@@ -65,7 +72,7 @@ export const sendMessage = async (message, sessionId = null, action = null, imag
         if (jsonStr) {
           try {
             const data = JSON.parse(jsonStr);
-            console.log('[chatService] 解析到数据块:', data);
+            // 仅记录数据块类型，不打印完整内容
             onChunk && onChunk(data);
 
             if (data.done) {
@@ -74,7 +81,7 @@ export const sendMessage = async (message, sessionId = null, action = null, imag
               return;
             }
           } catch (e) {
-            console.warn('[chatService] 解析JSON失败:', jsonStr, e);
+            console.warn('[chatService] 解析JSON失败:', e.message);
           }
         }
       }
