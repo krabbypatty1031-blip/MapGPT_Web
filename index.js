@@ -1,3 +1,5 @@
+// 为所有平台初始化手势系统，确保 Web 端也能响应手势事件
+import 'react-native-gesture-handler';
 import { registerRootComponent } from 'expo';
 
 import App from './App';

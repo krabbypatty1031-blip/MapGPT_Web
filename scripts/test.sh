@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 设置 Android SDK 环境变量
-export ANDROID_HOME=$HOME/Android/Sdk
+export ANDROID_HOME=C:\Users\KrabbyPatty\AppData\Local\Android\Sdk
 export PATH=$PATH:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools
 
 # 启动 Metro bundler（支持热更新）

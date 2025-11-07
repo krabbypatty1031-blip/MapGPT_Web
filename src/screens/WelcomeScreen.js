@@ -1,5 +1,15 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Animated, PanResponder, Dimensions, Image } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  PanResponder,
+  Dimensions,
+  Image,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../constants/theme';
 
@@ -16,6 +26,7 @@ const SLIDE_THRESHOLD = SLIDER_WIDTH - BUTTON_WIDTH - PADDING * 2;
  * 通过滑动按钮解锁进入下一页面
  */
 const WelcomeScreen = ({ navigation }) => {
+  const isWeb = Platform.OS === 'web';
   const [isUnlocked, setIsUnlocked] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
@@ -26,6 +37,40 @@ const WelcomeScreen = ({ navigation }) => {
     slideAnim.setValue(0);
     opacityAnim.setValue(1);
   }, [slideAnim, opacityAnim]);
+
+  /**
+   * 跳转到 AI 助手页面
+   */
+  const navigateToAssistant = useCallback(() => {
+    navigation.navigate('Assistant');
+  }, [navigation]);
+
+  /**
+   * 锁定成功后的动画与导航逻辑
+   */
+  const unlockAndNavigate = useCallback(() => {
+    if (isUnlocked) {
+      navigateToAssistant();
+      return;
+    }
+
+    setIsUnlocked(true);
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: SLIDE_THRESHOLD,
+        tension: 45,
+        friction: 8,
+        useNativeDriver: false,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0.3,
+        duration: 200,
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      navigateToAssistant();
+    });
+  }, [isUnlocked, navigateToAssistant, slideAnim, opacityAnim]);
 
   // 当页面获得焦点时，重置滑块
   useFocusEffect(
@@ -54,15 +99,7 @@ const WelcomeScreen = ({ navigation }) => {
         
         if (gesture.dx > SLIDE_THRESHOLD * 0.8) {
           // 滑动超过阈值，解锁成功
-          Animated.spring(slideAnim, {
-            toValue: SLIDE_THRESHOLD,
-            useNativeDriver: false,
-          }).start(() => {
-            setIsUnlocked(true);
-            setTimeout(() => {
-              navigation.navigate('Assistant');
-            }, 200);
-          });
+          unlockAndNavigate();
         } else {
           // 滑动不足，回弹
           Animated.parallel([
@@ -109,6 +146,15 @@ const WelcomeScreen = ({ navigation }) => {
       {/* 底部滑动解锁 */}
       <View style={styles.bottomContainer}>
         <View style={styles.sliderTrack}>
+          {isWeb && (
+            <TouchableOpacity
+              style={styles.webUnlockOverlay}
+              activeOpacity={0.85}
+              onPress={unlockAndNavigate}
+              accessibilityRole="button"
+              accessibilityLabel="开始体验 AI 助手"
+            />
+          )}
           <Animated.View
             style={[
               styles.sliderButton,
@@ -185,6 +231,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 5,
+  },
+  webUnlockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
   },
   sliderButton: {
     width: BUTTON_WIDTH,

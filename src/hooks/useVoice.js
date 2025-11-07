@@ -60,13 +60,17 @@ export const useVoice = () => {
       let recognizedText;
       
       if (selectedAction) {
+        // Web 端会直接返回文本，因此统一通过语音服务处理后再取文本
         const voiceResult = await VoiceService.processVoiceWithAction(
-          result.uri,
-          selectedAction
+          result.uri ?? null,
+          selectedAction,
         );
-        recognizedText = voiceResult.text;
+        recognizedText = voiceResult?.text || result.text;
+      } else if (result.text) {
+        // 当 stopRecording 已经提供识别文本时直接复用，避免重复请求
+        recognizedText = result.text;
       } else {
-        const sttResult = await VoiceService.speechToText(result.uri);
+        const sttResult = await VoiceService.speechToText(result.uri ?? null);
         recognizedText = sttResult.success ? sttResult.text : sttResult.mockText;
       }
 
