@@ -35,14 +35,15 @@
   },
   "name": "mapgpt_front",
   "version": "1.0.0",
-  "homepage": "https://davidzhangtest.github.io/mapgpt_front",
+  "homepage": "https://David-Zhang-test.github.io/mapgpt_front",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
+    "postbuild:web": "node scripts/fix-paths.js",
     "predeploy": "npm run build:web",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist --dotfiles --nojekyll"
   }
 }
