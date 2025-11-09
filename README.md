@@ -1,4 +1,4 @@
-# mapGPT Frontend
+# MapGPT Frontend Demonstration
 
 > This demo was built in **one month** as a proof-of-concept prototype.  
 > It is **not feature-complete** and may contain unfinished components or known issues.  
