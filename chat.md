@@ -1,5 +1,6 @@
 # MapGPT - AI Interaction Report
-
+(Please visit https://krabbypatty1031-blip.github.io/MapGPT_Web/ to visit)
+**Note: Please click the button to continue not slide**
 ## Overview
 This report documents how we used Generative AI tools to support our design and build of a front‑end in our project. The collaboration focused on layout ideation, visual polish, responsiveness, and presentation quality, with implementation shaped to the project’s existing structure.
 
