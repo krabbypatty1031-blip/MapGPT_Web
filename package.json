@@ -35,7 +35,7 @@
   },
   "name": "mapgpt_front",
   "version": "1.0.0",
-  "homepage": "https://David-Zhang-test.github.io/mapgpt_front",
+  "homepage": "https://krabbypatty1031-blip.github.io/MapGPT_Web",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -44,6 +44,6 @@
     "build:web": "expo export --platform web",
     "postbuild:web": "node scripts/fix-paths.js",
     "predeploy": "npm run build:web",
-    "deploy": "gh-pages -d dist --dotfiles --nojekyll"
+    "deploy": "gh-pages -d dist --dotfiles --nojekyll --repo https://github.com/krabbypatty1031-blip/MapGPT_Web.git"
   }
 }
