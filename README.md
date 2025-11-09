@@ -15,6 +15,6 @@
 - UI/UX is subject to change in future iterations
 - Do not deploy this version in a production environment
 
-Please visit https://krabbypatty1031-blip.github.io/MapGPT_Web/ to use our app.
-Please click the button not slide to continue, thank you!
+- Please visit https://krabbypatty1031-blip.github.io/MapGPT_Web/ to use our app.  
+- Please click the button not slide to continue, thank you!
 
