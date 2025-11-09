@@ -1,219 +1,211 @@
 /**
- * 对话服务
- * 处理聊天业务逻辑和Mock数据生成
- * API调用已迁移至 api.js
+ * 对话服务（离线模式）
+ * 负责模拟流式响应、预设问题与历史记录的封装
  */
 
-import { ChatAPI, API_BASE_URL, API_ENDPOINTS } from './api';
+import { ChatAPI } from './api';
+import { ROUTE_LOCATIONS } from './offlineData';
 
-/**
- * 发送消息到AI助手（流式响应）
- * @param {string} message - 用户消息
- * @param {string} sessionId - 会话ID（可选）
- * @param {string} action - 快捷功能类型 (route/location/image/voice)
- * @param {Array} images - 图片数组
- * @param {Object} context - 上下文信息（可选）
- * @param {Function} onChunk - 接收数据块的回调
- * @param {Function} onComplete - 完成的回调
- * @param {Function} onError - 错误的回调
- * @returns {Promise<void>}
- */
-export const sendMessage = async (message, sessionId = null, action = null, images = [], context = {}, onChunk, onComplete, onError) => {
-  console.log('[chatService] sendMessage 调用:', { 
-    messageLength: message?.length, 
-    sessionId, 
-    action, 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const streamDelay = () => 60 + Math.random() * 90;
+
+const splitContentIntoChunks = (text = '') => {
+  if (!text) return [];
+  const sentences = text.split(/(?<=[。！？!?\n])/);
+  const chunks = [];
+  sentences.forEach((sentence) => {
+    const trimmed = sentence.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (trimmed.length <= 28) {
+      chunks.push(trimmed);
+      return;
+    }
+    for (let i = 0; i < trimmed.length; i += 28) {
+      chunks.push(trimmed.slice(i, i + 28));
+    }
+  });
+  return chunks.length ? chunks : [text];
+};
+
+const streamAssistantResponse = async ({ text, suggestions = [], locations, onChunk, onComplete }) => {
+  const chunks = splitContentIntoChunks(text);
+
+  for (const chunk of chunks) {
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(streamDelay());
+    onChunk?.({ content: chunk });
+  }
+
+  await sleep(50);
+  onChunk?.({
+    done: true,
+    suggestions,
+    locations,
+  });
+  onComplete?.();
+};
+
+export const sendMessage = async (
+  message,
+  sessionId = null,
+  action = null,
+  images = [],
+  context = {},
+  onChunk,
+  onComplete,
+  onError,
+) => {
+  console.log('[chatService] sendMessage:', {
+    messageLength: message?.length,
+    sessionId,
+    action,
     imageCount: images?.length,
-    hasContext: !!Object.keys(context).length,
+    hasContext: !!Object.keys(context || {}).length,
   });
 
   try {
-    const requestBody = {
+    const response = await ChatAPI.sendMessage({
       message,
-      sessionId: sessionId || 'default',
+      sessionId: sessionId || undefined,
       action,
       images,
       context,
-      timestamp: new Date().toISOString(),
-    };
-
-    console.log('[chatService] 发送请求到:', API_ENDPOINTS.CHAT_SEND);
-
-    const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.CHAT_SEND}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!response.success) {
+      throw new Error(response.error || '离线聊天失败');
     }
 
-    // 获取完整的响应文本
-    const responseText = await response.text();
-    const lineCount = responseText.split('\n').length;
-    console.log('[chatService] 收到响应，行数:', lineCount);
-
-    // 解析 SSE 格式的数据
-    const lines = responseText.split('\n');
-    let chunkIndex = 0;
-    
-    const processNextChunk = () => {
-      if (chunkIndex >= lines.length) {
-        onComplete && onComplete();
-        return;
-      }
-      
-      const line = lines[chunkIndex++];
-      if (line.startsWith('data:')) {
-        const jsonStr = line.substring(5).trim(); // 移除 'data:' 后的内容
-        if (jsonStr) {
-          try {
-            const data = JSON.parse(jsonStr);
-            // 仅记录数据块类型，不打印完整内容
-            onChunk && onChunk(data);
-
-            if (data.done) {
-              console.log('[chatService] 消息接收完成');
-              onComplete && onComplete();
-              return;
-            }
-          } catch (e) {
-            console.warn('[chatService] 解析JSON失败:', e.message);
-          }
-        }
-      }
-      
-      // 异步处理下一个数据块
-      setTimeout(processNextChunk, 0);
-    };
-    
-    // 开始处理第一个数据块
-    setTimeout(processNextChunk, 0);
+    const { message: aiText, suggestions, locations } = response.data || {};
+    await streamAssistantResponse({
+      text: aiText,
+      suggestions,
+      locations,
+      onChunk,
+      onComplete,
+    });
   } catch (error) {
-    console.error('[chatService] 发送消息失败:', error);
-    onError && onError(error);
+    console.error('[chatService] sendMessage fallback:', error);
+    const fallback = generateMockResponse(message);
+    await streamAssistantResponse({
+      text: fallback.message,
+      suggestions: fallback.suggestions,
+      locations: action === 'route' ? ROUTE_LOCATIONS : undefined,
+      onChunk,
+      onComplete,
+    });
+    onError?.(error);
   }
 };
 
-/**
- * 生成模拟响应（开发阶段使用）
- * @param {string} message - 用户消息
- * @returns {Object} 模拟响应
- */
-const generateMockResponse = (message) => {
+const generateMockResponse = (message = '') => {
   const lowerMessage = message.toLowerCase();
-  
+
   const mockResponses = {
-    '图书馆': {
-      message: '📚 香港浸会大学图书馆\n\n开放时间：\n周一至周五：8:00 AM - 10:00 PM\n周六至周日：9:00 AM - 6:00 PM\n\n位置：教学楼B座2-5层\n\n提供服务：\n• 图书借阅\n• 自习座位\n• 电脑设备\n• 打印复印',
-      suggestions: ['查看馆藏资源', '预约座位', '查询借阅记录'],
+    library: {
+      keywords: ['图书', 'library', 'book'],
+      message:
+        '📚 香港浸会大学图书馆今日开放 08:00-22:00，提供自习室、研讨室与打印服务，可提前预约座位。',
+      suggestions: ['查看馆藏', '学习空间', '预约研讨室'],
     },
-    '路线': {
-      message: '🚶 校园导航\n\n从学生会到教学楼A座：\n1. 从学生会出发向北走\n2. 经过中央广场\n3. 穿过林荫道\n4. 到达教学楼A座南门\n\n预计步行时间：5分钟\n距离：约300米',
-      suggestions: ['查看地图', '其他路线', '附近设施'],
+    route: {
+      keywords: ['路线', '导航', '怎么走', 'route'],
+      message:
+        '🚶 校园导航：从学生会出发沿中央广场前行，穿过林荫道即可抵达教学楼A座，全程约 6 分钟。',
+      suggestions: ['查看地图', '替换终点', '附近设施'],
     },
-    '食堂': {
-      message: '🍽️ 校园餐饮指南\n\n推荐食堂：\n\n1. 南翼食堂\n   • 中式快餐\n   • 营业时间：7:00-20:00\n   • 人均消费：¥25\n\n2. 北翼食堂\n   • 西式简餐\n   • 营业时间：7:00-21:00\n   • 人均消费：¥30\n\n3. 咖啡厅\n   • 轻食饮品\n   • 营业时间：8:00-22:00\n   • 人均消费：¥35',
-      suggestions: ['今日菜单', '营养搭配', '附近餐厅'],
+    dining: {
+      keywords: ['食堂', '餐厅', '吃', 'dining'],
+      message:
+        '🍽 今日推荐南翼食堂的健康套餐与北翼食堂的轻食咖啡，午市 11:00-14:30，支持移动取餐。',
+      suggestions: ['今日菜单', '排队情况', '附近咖啡'],
     },
-    '活动': {
-      message: '🎉 本周校园活动\n\n周一 (10/28)：学术讲座\n时间：19:00\n地点：大礼堂\n\n周三 (10/30)：社团招新\n时间：14:00-17:00\n地点：中央广场\n\n周五 (11/1)：篮球赛\n时间：16:00\n地点：体育馆',
-      suggestions: ['报名活动', '查看更多', '活动日历'],
+    events: {
+      keywords: ['活动', 'event', '讲座'],
+      message:
+        '🎉 本周活动：周三社团招新@中央广场、周五原创音乐会@大礼堂，均可在App内预约。',
+      suggestions: ['报名方式', '更多活动', '提醒我'],
     },
   };
 
-  // 匹配关键词
-  for (const [key, value] of Object.entries(mockResponses)) {
-    if (lowerMessage.includes(key)) {
+  for (const value of Object.values(mockResponses)) {
+    if (value.keywords.some((keyword) => lowerMessage.includes(keyword))) {
       return {
         message: value.message,
         suggestions: value.suggestions,
-        timestamp: new Date().toISOString(),
-        type: 'text',
       };
     }
   }
 
-  // 默认响应
   return {
-    message: '👋 你好！我是香港浸会大学智能助手MapGPT。\n\n我可以帮你：\n• 🗺️ 校园导航和路线规划\n• 📚 查询图书馆信息\n• 🍽️ 推荐校园美食\n• 🎓 了解校园活动\n• ℹ️ 获取各类校园资讯\n\n请问有什么可以帮到你的？',
-    suggestions: ['图书馆开放时间', '查看地图', '食堂推荐', '本周活动'],
-    timestamp: new Date().toISOString(),
-    type: 'text',
+    message:
+      '👋 你好！我是 MapGPT 校园助手，可提供路线规划、图书馆信息、校园活动与生活指南。请告诉我想了解的内容。',
+    suggestions: ['校内路线', '图书馆开放', '附近餐饮', '本周活动'],
   };
 };
 
-/**
- * 获取预设问题列表
- * @returns {Array<Object>} 预设问题列表
- */
-export const getPresetQuestions = () => {
-  return [
-    {
-      id: '1',
-      icon: '📚',
-      title: '图书馆查询',
-      text: '查询香港浸会大学图书馆开放时间',
-      query: '图书馆开放时间',
-      category: 'library',
-    },
-    {
-      id: '2',
-      icon: '🚶',
-      title: '路线导航',
-      text: '从学生会到教学楼A座的路线',
-      query: '学生会到教学楼A座路线',
-      category: 'navigation',
-    },
-    {
-      id: '3',
-      icon: '📖',
-      title: '资源导览',
-      text: '图书馆资源导览',
-      query: '图书馆资源',
-      category: 'library',
-    },
-    {
-      id: '4',
-      icon: '🍽️',
-      title: '美食推荐',
-      text: '校园美食推荐',
-      query: '食堂推荐',
-      category: 'dining',
-    },
-    {
-      id: '5',
-      icon: '🏃',
-      title: '校园活动',
-      text: '本周校园活动',
-      query: '本周活动',
-      category: 'events',
-    },
-    {
-      id: '6',
-      icon: '🏢',
-      title: '建筑查询',
-      text: '查找校园建筑位置',
-      query: '教学楼位置',
-      category: 'buildings',
-    },
-  ];
-};
+export const getPresetQuestions = () => [
+  {
+    id: '1',
+    icon: '📚',
+    title: '图书馆查询',
+    text: '图书馆开放时间',
+    query: '图书馆开放时间',
+    category: 'library',
+  },
+  {
+    id: '2',
+    icon: '🚶',
+    title: '路线导航',
+    text: '从学生会到教学楼A座怎么走',
+    query: '学生会到教学楼A座路线',
+    category: 'navigation',
+  },
+  {
+    id: '3',
+    icon: '📖',
+    title: '资源导览',
+    text: '图书馆资源介绍',
+    query: '图书馆资源',
+    category: 'library',
+  },
+  {
+    id: '4',
+    icon: '🍽',
+    title: '美食推荐',
+    text: '校园美食推荐',
+    query: '食堂推荐',
+    category: 'dining',
+  },
+  {
+    id: '5',
+    icon: '🏃',
+    title: '校园活动',
+    text: '本周校园活动安排',
+    query: '本周活动',
+    category: 'events',
+  },
+  {
+    id: '6',
+    icon: '🏢',
+    title: '建筑查询',
+    text: '查找校园建筑位置',
+    query: '教学楼位置',
+    category: 'buildings',
+  },
+];
 
-/**
- * 获取会话历史
- * @param {string} sessionId - 会话ID
- * @returns {Promise<Array>} 消息历史
- */
 export const getChatHistory = async (sessionId) => {
   try {
     const result = await ChatAPI.getHistory(sessionId);
+    if (!result.success) {
+      throw new Error(result.error || '历史记录获取失败');
+    }
     return {
       success: true,
-      data: result,
+      data: result.data || [],
     };
   } catch (error) {
     console.error('获取历史记录失败:', error);
@@ -225,17 +217,13 @@ export const getChatHistory = async (sessionId) => {
   }
 };
 
-/**
- * 清除会话
- * @param {string} sessionId - 会话ID
- * @returns {Promise<Object>} 操作结果
- */
 export const clearChatSession = async (sessionId) => {
   try {
-    await ChatAPI.deleteSession(sessionId);
-    return {
-      success: true,
-    };
+    const result = await ChatAPI.deleteSession(sessionId);
+    if (!result.success) {
+      throw new Error(result.error || '会话清理失败');
+    }
+    return { success: true };
   } catch (error) {
     console.error('清除会话失败:', error);
     return {

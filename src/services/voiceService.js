@@ -1,19 +1,14 @@
 /**
- * 语音服务
- * 处理语音录音、播放和权限管理
- * API调用已迁移至 api.js
+ * 语音服务（离线模式）
+ * 负责录音、语音识别模拟以及本地 TTS 播放
  */
 
 import { Audio } from 'expo-av';
-import { VoiceAPI } from './api';
+import * as Speech from 'expo-speech';
+import { getMockSpeechText } from './offlineData';
 
-// 全局录音对象
 let recording = null;
-let sound = null;
 
-/**
- * 初始化音频模式
- */
 const initAudioMode = async () => {
   try {
     await Audio.setAudioModeAsync({
@@ -28,19 +23,13 @@ const initAudioMode = async () => {
   }
 };
 
-/**
- * 请求录音权限
- * @returns {Promise<boolean>} 是否获得权限
- */
 export const requestAudioPermission = async () => {
   try {
     const { status } = await Audio.requestPermissionsAsync();
-    
     if (status === 'granted') {
       await initAudioMode();
       return true;
     }
-    
     console.warn('录音权限被拒绝');
     return false;
   } catch (error) {
@@ -49,10 +38,6 @@ export const requestAudioPermission = async () => {
   }
 };
 
-/**
- * 检查录音权限状态
- * @returns {Promise<string>} 权限状态
- */
 export const checkAudioPermission = async () => {
   try {
     const { status } = await Audio.getPermissionsAsync();
@@ -63,38 +48,23 @@ export const checkAudioPermission = async () => {
   }
 };
 
-/**
- * 开始录音
- * @param {Object} options - 录音选项
- * @returns {Promise<Object>} 录音对象和状态
- */
 export const startRecording = async (options = {}) => {
   try {
-    // 检查权限
     const hasPermission = await requestAudioPermission();
     if (!hasPermission) {
-      return {
-        success: false,
-        error: '没有录音权限，请在设置中允许访问麦克风',
-      };
+      return { success: false, error: '需要麦克风权限，请在设置中启用。' };
     }
 
-    // 停止之前的录音
     if (recording) {
       await stopRecording();
     }
 
-    // 配置录音选项
     const recordingOptions = {
       ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
       ...options,
     };
 
-    // 创建录音对象
-    const { recording: newRecording } = await Audio.Recording.createAsync(
-      recordingOptions
-    );
-
+    const { recording: newRecording } = await Audio.Recording.createAsync(recordingOptions);
     recording = newRecording;
 
     return {
@@ -103,24 +73,14 @@ export const startRecording = async (options = {}) => {
     };
   } catch (error) {
     console.error('开始录音失败:', error);
-    return {
-      success: false,
-      error: error.message || '录音启动失败',
-    };
+    return { success: false, error: error.message || '录音启动失败' };
   }
 };
 
-/**
- * 停止录音
- * @returns {Promise<Object>} 录音URI、时长和状态
- */
 export const stopRecording = async () => {
   try {
     if (!recording) {
-      return {
-        success: false,
-        error: '没有正在进行的录音',
-      };
+      return { success: false, error: '没有正在进行的录音' };
     }
 
     await recording.stopAndUnloadAsync();
@@ -135,22 +95,14 @@ export const stopRecording = async () => {
     };
 
     recording = null;
-
     return result;
   } catch (error) {
     console.error('停止录音失败:', error);
     recording = null;
-    return {
-      success: false,
-      error: error.message || '停止录音失败',
-    };
+    return { success: false, error: error.message || '停止录音失败' };
   }
 };
 
-/**
- * 取消录音
- * @returns {Promise<boolean>} 操作结果
- */
 export const cancelRecording = async () => {
   try {
     if (recording) {
@@ -165,10 +117,6 @@ export const cancelRecording = async () => {
   }
 };
 
-/**
- * 获取录音状态
- * @returns {Promise<Object|null>} 录音状态
- */
 export const getRecordingStatus = async () => {
   try {
     if (!recording) {
@@ -181,201 +129,82 @@ export const getRecordingStatus = async () => {
   }
 };
 
-/**
- * 将语音转换为文字
- * @param {string} audioUri - 音频文件URI
- * @param {Object} options - 识别选项
- * @returns {Promise<Object>} 识别结果
- */
-export const speechToText = async (audioUri, options = {}) => {
+export const speechToText = async (_audioUri, options = {}) => {
   try {
-    const result = await VoiceAPI.speechToText({
-      audioUri,
-      language: options.language,
-      actionType: options.actionType,
-    });
-
     return {
       success: true,
-      text: result.text,
-      confidence: result.confidence || 0,
-      language: result.language,
+      text: getMockSpeechText(options.actionType),
+      confidence: 0.95,
+      language: options.language || 'zh-CN',
+      isMock: true,
     };
   } catch (error) {
     console.error('语音转文字失败:', error);
-    
-    // 开发环境返回模拟数据
-    if (__DEV__) {
-      return {
-        success: true,
-        text: getMockRecognitionText(options.actionType),
-        confidence: 0.95,
-        isMock: true,
-      };
-    }
-    
-    return {
-      success: false,
-      error: error.message || '语音识别失败',
-    };
+    return { success: false, error: error.message || '语音识别失败' };
   }
 };
 
-/**
- * 生成模拟识别文本（开发阶段使用）
- * @param {string} actionType - 快捷功能类型
- * @returns {string} 模拟文本
- */
-const getMockRecognitionText = (actionType) => {
-  const mockTexts = {
-    route: '从图书馆到食堂怎么走？',
-    location: '最近的咖啡厅在哪里？',
-    image: '这是什么建筑？',
-    voice: '给我讲讲这个地方的历史',
-    default: '你好，我想了解一下校园信息',
-  };
-
-  return mockTexts[actionType] || mockTexts.default;
-};
-
-/**
- * 文字转语音并播放
- * @param {string} text - 要转换的文字
- * @param {Object} options - 语音选项
- * @returns {Promise<Object>} 播放结果
- */
 export const textToSpeech = async (text, options = {}) => {
   try {
-    // 停止之前的播放
-    if (sound) {
-      await sound.stopAsync();
-      await sound.unloadAsync();
-      sound = null;
-    }
-
-    const result = await VoiceAPI.textToSpeech({
-      text,
-      voiceType: options.voiceType || 'female',
+    Speech.stop();
+    Speech.speak(text, {
       language: options.language || 'zh-CN',
-      speed: options.speed || 1.0,
+      rate: options.speed || 1.0,
+      pitch: 1.0,
+      voice: options.voiceType === 'male' ? 'zh-cn-x-zh#male_1-local' : undefined,
     });
-
-    // 播放音频
-    const { sound: newSound } = await Audio.Sound.createAsync(
-      { uri: result.audioUrl },
-      { shouldPlay: true }
-    );
-
-    sound = newSound;
-
-    return {
-      success: true,
-      sound: newSound,
-    };
+    return { success: true };
   } catch (error) {
     console.error('文字转语音失败:', error);
-    return {
-      success: false,
-      error: error.message || '语音播放失败',
-    };
+    return { success: false, error: error.message || '语音播放失败' };
   }
 };
 
-/**
- * 停止语音播放
- * @returns {Promise<boolean>} 操作结果
- */
 export const stopPlayback = async () => {
   try {
-    if (sound) {
-      await sound.stopAsync();
-      await sound.unloadAsync();
-      sound = null;
-    }
+    Speech.stop();
     return true;
   } catch (error) {
-    console.error('停止播放失败:', error);
+    console.error('停止语音失败:', error);
     return false;
   }
 };
 
-/**
- * 处理带有上下文的语音输入
- * @param {string} audioUri - 音频URI
- * @param {string} actionType - 功能类型
- * @param {Object} context - 上下文信息
- * @returns {Promise<Object>} 处理结果
- */
 export const processVoiceWithAction = async (audioUri, actionType, context = {}) => {
   try {
-    // 语音识别
     const sttResult = await speechToText(audioUri, { actionType });
-    
     if (!sttResult.success) {
-      return {
-        success: false,
-        error: sttResult.error,
-      };
+      return { success: false, error: sttResult.error };
     }
 
-    const text = sttResult.text;
     const actionMap = {
-      route: {
-        type: 'route',
-        action: '正在为您规划路线...',
-        icon: '🚶',
-      },
-      location: {
-        type: 'location',
-        action: '正在为您查找位置...',
-        icon: '📍',
-      },
-      image: {
-        type: 'image',
-        action: '请拍摄照片...',
-        icon: '📷',
-      },
-      voice: {
-        type: 'voice',
-        action: '正在为您讲解...',
-        icon: '🔊',
-      },
+      route: { type: 'route', action: '正在为您规划路线...', icon: '🚶' },
+      location: { type: 'location', action: '正在为您查找位置...', icon: '📍' },
+      image: { type: 'image', action: '请拍摄相关图片...', icon: '📷' },
+      voice: { type: 'voice', action: '正在为您讲解...', icon: '🔊' },
     };
 
-    const actionInfo = actionMap[actionType] || {
-      type: 'default',
-      action: '正在处理您的请求...',
-      icon: '💬',
-    };
-
-    console.log(`处理${actionInfo.type}语音:`, text);
+    const actionInfo = actionMap[actionType] || { type: 'default', action: '正在处理...', icon: '💬' };
 
     return {
       success: true,
-      text,
+      text: sttResult.text,
       confidence: sttResult.confidence,
       ...actionInfo,
       context,
     };
   } catch (error) {
     console.error('处理语音失败:', error);
-    return {
-      success: false,
-      error: error.message || '语音处理失败',
-    };
+    return { success: false, error: error.message || '语音处理失败' };
   }
 };
 
-/**
- * 清理所有音频资源
- * @returns {Promise<void>}
- */
 export const cleanup = async () => {
   try {
     await cancelRecording();
     await stopPlayback();
   } catch (error) {
-    console.error('清理音频资源失败:', error);
+    console.error('清理语音资源失败:', error);
   }
 };
 

@@ -102,6 +102,35 @@ const MessageBubble = ({ message, isUser, onViewMap, getMessageText }) => {
               |
             </Animated.Text>
           )}
+
+          {message.analysis && (
+            <View style={styles.analysisContainer}>
+              <Text style={styles.analysisTitle}>
+                {message.analysis.type === 'ocr' ? 'OCR 识别结果' : '图片分析'}
+              </Text>
+
+              {Array.isArray(message.analysis.tags) && message.analysis.tags.length > 0 && (
+                <View style={styles.tagRow}>
+                  {message.analysis.tags.map((tag, index) => (
+                    <View key={`${tag}-${index}`} style={styles.tagChip}>
+                      <Text style={styles.tagText}>{tag}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {Array.isArray(message.analysis.recommendations) && message.analysis.recommendations.length > 0 && (
+                <View style={styles.recommendationContainer}>
+                  <Text style={styles.recommendationTitle}>推荐操作</Text>
+                  {message.analysis.recommendations.map((item, index) => (
+                    <Text key={`${item}-${index}`} style={styles.recommendationText}>
+                      • {item}
+                    </Text>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
         </View>
         
         {shouldShowMapButton && (
@@ -185,6 +214,48 @@ const styles = StyleSheet.create({
     color: '#0090F0',
     fontSize: 15,
     fontWeight: 'bold',
+  },
+  analysisContainer: {
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: '#F5F7FA',
+    borderRadius: 8,
+    gap: 8,
+  },
+  analysisTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1D2129',
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  tagChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#E8F4FD',
+  },
+  tagText: {
+    fontSize: 12,
+    color: '#0072E3',
+  },
+  recommendationContainer: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E6EB',
+    paddingTop: 8,
+    gap: 4,
+  },
+  recommendationTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1D2129',
+  },
+  recommendationText: {
+    fontSize: 12,
+    color: '#4E5969',
   },
   mapButton: {
     flexDirection: 'row',

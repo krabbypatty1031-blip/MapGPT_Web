@@ -162,9 +162,20 @@ export const useChat = () => {
     setMessages([]);
   }, []);
 
+  const appendAssistantMessage = useCallback((payload = {}) => {
+    const aiMessage = {
+      id: (Date.now() + Math.random()).toString(),
+      type: 'ai',
+      timestamp: new Date(),
+      ...payload,
+    };
+
+    setMessages((prev) => [...prev, aiMessage]);
+  }, []);
+
   // 获取消息文本，如果是流式消息则返回累积文本
   const getMessageText = useCallback((message) => {
-    if (message.isStreaming && message.id === messages.find(m => m.isStreaming)?.id) {
+    if (message.isStreaming && message.id === messages.find((m) => m.isStreaming)?.id) {
       return accumulatedTextRef.current;
     }
     return message.text;
@@ -176,5 +187,6 @@ export const useChat = () => {
     sendMessage,
     clearMessages,
     getMessageText, // 添加获取消息文本的函数
+    appendAssistantMessage,
   };
 };

@@ -1,23 +1,17 @@
 /**
  * 图片服务
- * 处理图片选择、上传等业务逻辑
+ * 负责相册权限、选择、上传与分析逻辑
  */
 
 import * as ImagePicker from 'expo-image-picker';
 import { ImageAPI } from './api';
 
-/**
- * 请求相册权限
- * @returns {Promise<boolean>} 是否获得权限
- */
 export const requestImagePermission = async () => {
   try {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
     if (status === 'granted') {
       return true;
     }
-    
     console.warn('相册权限被拒绝');
     return false;
   } catch (error) {
@@ -26,23 +20,13 @@ export const requestImagePermission = async () => {
   }
 };
 
-/**
- * 选择图片
- * @param {Object} options - 选择选项
- * @returns {Promise<Object>} 选择结果
- */
 export const pickImage = async (options = {}) => {
   try {
-    // 请求权限
     const hasPermission = await requestImagePermission();
     if (!hasPermission) {
-      return {
-        success: false,
-        error: '需要相册权限才能选择图片',
-      };
+      return { success: false, error: '需要相册权限才能选择图片' };
     }
 
-    // 打开图片选择器
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: options.allowsEditing !== false,
@@ -54,8 +38,8 @@ export const pickImage = async (options = {}) => {
       return { success: false, canceled: true };
     }
 
-    if (result.assets && result.assets.length > 0) {
-      const asset = result.assets[0];
+    const asset = result.assets?.[0];
+    if (asset) {
       return {
         success: true,
         image: {
@@ -77,35 +61,27 @@ export const pickImage = async (options = {}) => {
   }
 };
 
-/**
- * 上传图片
- * @param {Object} image - 图片对象
- * @param {Function} onProgress - 进度回调
- * @returns {Promise<Object>} 上传结果
- */
 export const uploadImage = async (image, onProgress) => {
   try {
-    console.log('[ImageService] 开始上传图片:', { 
-      id: image.id, 
+    console.log('[ImageService] 开始上传图片', {
+      id: image.id,
       uri: image.uri,
-      hasProgress: !!onProgress 
+      hasProgress: !!onProgress,
     });
-    
+
     const result = await ImageAPI.uploadImage({
       uri: image.uri,
       imageId: image.id,
       onProgress,
     });
 
-    console.log('[ImageService] 上传结果:', result);
-
-    if (!result.success) {
-      throw new Error(result.error || '上传失败');
+    if (!result?.success) {
+      throw new Error(result?.error || '上传失败');
     }
 
     return {
       success: true,
-      data: result.data,
+      data: result.data || result,
     };
   } catch (error) {
     console.error('[ImageService] 上传图片失败:', error);
@@ -116,12 +92,6 @@ export const uploadImage = async (image, onProgress) => {
   }
 };
 
-/**
- * 分析图片
- * @param {string} imageUrl - 图片 URL
- * @param {string} analysisType - 分析类型
- * @returns {Promise<Object>} 分析结果
- */
 export const analyzeImage = async (imageUrl, analysisType = 'landmark') => {
   try {
     const result = await ImageAPI.analyzeImage({
@@ -129,9 +99,13 @@ export const analyzeImage = async (imageUrl, analysisType = 'landmark') => {
       analysisType,
     });
 
+    if (!result?.success) {
+      throw new Error(result?.error || '图片分析失败');
+    }
+
     return {
       success: true,
-      data: result,
+      data: result.data,
     };
   } catch (error) {
     console.error('图片分析失败:', error);

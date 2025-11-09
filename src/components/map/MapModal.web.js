@@ -1,127 +1,53 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+/**
+ * MapModal Web 版本
+ * 使用 Google Maps JavaScript SDK 在 Web 平台渲染地图
+ */
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Modal,
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
+
 import MapDrawer from './MapDrawer';
 import { useMap } from '../../hooks';
 import { MAP_CONFIG } from '../../config/mapConfig';
-
-const HEADER_HEIGHT = Platform.OS === 'ios' ? 100 : 80;
-const QUICK_ACTIONS_HEIGHT = 33;
-const QUICK_ACTIONS_MARGIN = 28;
-const BOTTOM_TO_QUICK_ACTIONS = 20;
-const MAP_WIDTH = 355;
-
-let googleMapsLoader = null;
-
-/**
- * 异步加载 Google Maps JS SDK
- * @returns {Promise<typeof google.maps>} 已加载的 Google Maps 对象
- */
-const ensureGoogleMaps = () => {
-  if (typeof window === 'undefined') {
-    return Promise.reject(new Error('Google Maps 仅在浏览器环境可用'));
-  }
-
-  if (window.google?.maps) {
-    return Promise.resolve(window.google.maps);
-  }
-
-  if (!googleMapsLoader) {
-    googleMapsLoader = new Promise((resolve, reject) => {
-      const existingScript = document.querySelector('script[data-google-maps]');
-
-      const handleLoaded = () => {
-        if (window.google?.maps) {
-          resolve(window.google.maps);
-        } else {
-          reject(new Error('Google Maps SDK 未正确初始化'));
-        }
-      };
-
-      if (existingScript) {
-        existingScript.addEventListener('load', handleLoaded, { once: true });
-        existingScript.addEventListener('error', (event) => {
-          reject(new Error(event?.message || 'Google Maps SDK 加载失败'));
-        }, { once: true });
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${MAP_CONFIG.apiKey}&libraries=geometry`;
-      script.defer = true;
-      script.async = true;
-      script.dataset.googleMaps = 'true';
-      script.addEventListener('load', handleLoaded, { once: true });
-      script.addEventListener('error', (event) => {
-        reject(new Error(event?.message || 'Google Maps SDK 加载失败'));
-      }, { once: true });
-      document.body.appendChild(script);
-    });
-  }
-
-  return googleMapsLoader;
-};
+import {
+  MAP_MODAL_DIMENSIONS,
+  MAP_ZOOM_LEVELS,
+  POLYGON_STYLES,
+  MARKER_STYLES,
+  ROUTE_STYLES,
+  MAP_LOADING_CONFIG,
+} from '../../constants/mapConstants';
 
 /**
- * 将 React Native 的坐标转换为 Google Maps LatLng
- * @param {{ latitude: number, longitude: number }} coordinate 坐标对象
- * @returns {{ lat: number, lng: number }} Google Maps 坐标
+ * MapModal 组件 - Web 版本
+ * @param {boolean} visible - 模态框是否可见
+ * @param {Function} onClose - 关闭回调
+ * @param {Object} initialRegion - 初始地图区域
+ * @param {Array} markers - 标记点数组
+ * @param {number} chatInputHeight - 聊天输入框高度
  */
-const toGoogleLatLng = (coordinate) => ({
-  lat: coordinate.latitude,
-  lng: coordinate.longitude,
-});
-
-/**
- * 根据显示范围估算地图缩放等级
- * @param {{ latitudeDelta?: number }} region 区域对象
- * @returns {number} Google Maps 缩放等级
- */
-const inferZoomFromRegion = (region) => {
-  const latitudeDelta = region?.latitudeDelta ?? 0.01;
-  const zoomLevel = Math.log2(360 / latitudeDelta);
-  return Math.min(Math.max(Math.round(zoomLevel), 3), 20);
-};
-
-/**
- * Web 端地图弹窗
- * 使用 Google Maps JS 实现交互功能
- */
-const MapModal = ({
-  visible,
-  onClose,
-  initialRegion,
-  markers = [],
-  chatInputHeight = 60,
-}) => {
+const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeight = 60 }) => {
+  // ==================== Refs ====================
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
-  const overlaysRef = useRef({
-    markers: [],
-    buildingPolygons: [],
-    roadPolygons: [],
-    routePolyline: null,
-    destinationMarker: null,
-    userMarker: null,
-    accuracyCircle: null,
-  });
+  const markersRef = useRef([]);
+  const polygonsRef = useRef([]);
+  const polylineRef = useRef(null);
+  const userMarkerRef = useRef(null);
+  const destinationMarkerRef = useRef(null);
+  const hasLoadedLayersRef = useRef(false);
+  const lastLoadedRegionKeyRef = useRef(null);
 
-  const [mapError, setMapError] = useState(null);
+  // ==================== State ====================
   const [isLoading, setIsLoading] = useState(false);
 
+  // ==================== Hooks ====================
   const {
     drawerVisible,
     selectedBuilding,
@@ -141,7 +67,6 @@ const MapModal = ({
     computedRegion,
     handleMarkerPress,
     handleDrawerClose,
-    loadLayers,
     fetchLocation,
     startNavigation,
     stopNavigation,
@@ -149,354 +74,437 @@ const MapModal = ({
     markers,
     initialRegion,
     enableLocationTracking: false,
-    useMockLocation: false,
+    useMockLocation: true,
   });
 
+  // ==================== 计算属性 ====================
   const bottomDistance = useMemo(
-    () => chatInputHeight + QUICK_ACTIONS_HEIGHT + QUICK_ACTIONS_MARGIN + BOTTOM_TO_QUICK_ACTIONS,
+    () =>
+      chatInputHeight +
+      MAP_MODAL_DIMENSIONS.QUICK_ACTIONS_HEIGHT +
+      MAP_MODAL_DIMENSIONS.QUICK_ACTIONS_MARGIN +
+      MAP_MODAL_DIMENSIONS.BOTTOM_TO_QUICK_ACTIONS,
     [chatInputHeight],
   );
 
+  // ==================== Google Maps SDK ====================
   /**
-   * 清理地图上的所有覆盖物
+   * 加载 Google Maps JavaScript SDK
    */
-  const clearOverlays = useCallback(() => {
-    const map = mapInstanceRef.current;
-    if (!map) {
-      return;
-    }
+  const loadGoogleMapsScript = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      // 检查是否已加载
+      if (window.google?.maps) {
+        resolve(window.google.maps);
+        return;
+      }
 
-    overlaysRef.current.markers.forEach((marker) => marker.setMap(null));
-    overlaysRef.current.buildingPolygons.forEach((polygon) => polygon.setMap(null));
-    overlaysRef.current.roadPolygons.forEach((polygon) => polygon.setMap(null));
+      // 检查是否正在加载
+      const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+      if (existingScript) {
+        const checkInterval = setInterval(() => {
+          if (window.google?.maps) {
+            clearInterval(checkInterval);
+            resolve(window.google.maps);
+          }
+        }, 100);
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          reject(new Error('Google Maps 加载超时'));
+        }, MAP_LOADING_CONFIG.SDK_TIMEOUT);
+        return;
+      }
 
-    overlaysRef.current.markers = [];
-    overlaysRef.current.buildingPolygons = [];
-    overlaysRef.current.roadPolygons = [];
-
-    if (overlaysRef.current.routePolyline) {
-      overlaysRef.current.routePolyline.setMap(null);
-      overlaysRef.current.routePolyline = null;
-    }
-    if (overlaysRef.current.destinationMarker) {
-      overlaysRef.current.destinationMarker.setMap(null);
-      overlaysRef.current.destinationMarker = null;
-    }
-    if (overlaysRef.current.userMarker) {
-      overlaysRef.current.userMarker.setMap(null);
-      overlaysRef.current.userMarker = null;
-    }
-    if (overlaysRef.current.accuracyCircle) {
-      overlaysRef.current.accuracyCircle.setMap(null);
-      overlaysRef.current.accuracyCircle = null;
-    }
+      // 创建并加载脚本
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${MAP_CONFIG.apiKey}&libraries=geometry,places`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        if (window.google?.maps) {
+          resolve(window.google.maps);
+        } else {
+          reject(new Error('Google Maps API 未正确加载'));
+        }
+      };
+      script.onerror = () => reject(new Error('Google Maps 脚本加载失败'));
+      document.head.appendChild(script);
+    });
   }, []);
 
+  // ==================== 渲染方法 ====================
   /**
-   * 渲染地图标记
-   * @param {google.maps.Map} map Google 地图实例
+   * 渲染地图标记和多边形
    */
-  const renderMarkers = useCallback((map) => {
-    clearOverlays();
+  const renderMarkers = useCallback(
+    (map) => {
+      if (!map || !window.google?.maps) return;
 
-    const google = window.google;
-    if (!google?.maps) {
-      return;
-    }
+      // 清除旧标记
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
 
-    // Render campus markers
-    const googleMarkers = markers
-      .map((marker, index) => {
+      // 清除旧多边形
+      polygonsRef.current.forEach((polygon) => polygon.setMap(null));
+      polygonsRef.current = [];
+
+      // 渲染道路多边形
+      roadPolygons.forEach((polygon) => {
+        if (!polygon.coordinates || polygon.coordinates.length < 3) return;
+
+        const poly = new window.google.maps.Polygon({
+          paths: polygon.coordinates.map((coord) => ({
+            lat: coord.latitude,
+            lng: coord.longitude,
+          })),
+          ...POLYGON_STYLES.ROAD,
+          map,
+        });
+
+        polygonsRef.current.push(poly);
+      });
+
+      // 渲染建筑多边形
+      buildingPolygons.forEach((polygon) => {
+        if (!polygon.coordinates || polygon.coordinates.length < 3) return;
+
+        const poly = new window.google.maps.Polygon({
+          paths: polygon.coordinates.map((coord) => ({
+            lat: coord.latitude,
+            lng: coord.longitude,
+          })),
+          ...POLYGON_STYLES.BUILDING,
+          map,
+        });
+
+        polygonsRef.current.push(poly);
+      });
+
+      // 渲染标记点
+      markers.forEach((marker) => {
         const coordinate = marker.coordinate || {
           latitude: marker.latitude,
           longitude: marker.longitude,
         };
 
         if (!coordinate || !isFinite(coordinate.latitude) || !isFinite(coordinate.longitude)) {
-          return null;
+          return;
         }
 
-        const googleMarker = new google.maps.Marker({
+        const mapMarker = new window.google.maps.Marker({
+          position: { lat: coordinate.latitude, lng: coordinate.longitude },
           map,
-          position: toGoogleLatLng(coordinate),
-          title: marker.title,
+          title: marker.title || '',
+          label: marker.title ? marker.title.charAt(0) : '',
+          ...MARKER_STYLES.DEFAULT,
         });
 
-        googleMarker.addListener('click', () => handleMarkerPress(marker));
-        return googleMarker;
-      })
-      .filter(Boolean);
+        mapMarker.addListener('click', () => {
+          handleMarkerPress(marker);
+        });
 
-    overlaysRef.current.markers = googleMarkers;
-
-    // Render campus road polygons
-    overlaysRef.current.roadPolygons = roadPolygons.map((polygon) => {
-      const paths = polygon.coordinates.map(toGoogleLatLng);
-      const holes = (polygon.holes || []).map((hole) => hole.map(toGoogleLatLng));
-
-      const googlePolygon = new google.maps.Polygon({
-        map,
-        paths: [paths, ...holes],
-        strokeColor: 'rgba(120,120,120,0.85)',
-        strokeOpacity: 0.85,
-        strokeWeight: 2,
-        fillColor: 'rgba(160,160,160,0.35)',
-        fillOpacity: 0.35,
+        markersRef.current.push(mapMarker);
       });
+    },
+    [markers, buildingPolygons, roadPolygons, handleMarkerPress],
+  );
 
-      return googlePolygon;
-    });
+  /**
+   * 更新地图视口
+   */
+  const updateViewport = useCallback(
+    (map) => {
+      if (!map || !computedRegion) return;
 
-    // Render building polygons
-    overlaysRef.current.buildingPolygons = buildingPolygons.map((polygon) => {
-      const paths = polygon.coordinates.map(toGoogleLatLng);
-      const holes = (polygon.holes || []).map((hole) => hole.map(toGoogleLatLng));
+      const center = {
+        lat: computedRegion.latitude,
+        lng: computedRegion.longitude,
+      };
 
-      const googlePolygon = new google.maps.Polygon({
-        map,
-        paths: [paths, ...holes],
-        strokeColor: 'rgba(255,140,0,0.9)',
-        strokeOpacity: 0.9,
-        strokeWeight: 2,
-        fillColor: 'rgba(255,165,0,0.35)',
-        fillOpacity: 0.35,
-      });
+      map.setCenter(center);
 
-      return googlePolygon;
-    });
+      // 根据 latitudeDelta 计算合适的缩放级别
+      const zoom = Math.round(Math.log2(360 / computedRegion.latitudeDelta));
+      map.setZoom(
+        Math.max(MAP_ZOOM_LEVELS.MIN, Math.min(zoom, MAP_ZOOM_LEVELS.MAX)),
+      );
+    },
+    [computedRegion],
+  );
 
-    // Render route polyline
-    if (Array.isArray(routeCoordinates) && routeCoordinates.length > 1) {
-      overlaysRef.current.routePolyline = new google.maps.Polyline({
-        map,
-        path: routeCoordinates.map(toGoogleLatLng),
-        strokeColor: '#007AFF',
-        strokeWeight: 5,
-      });
-    }
+  /**
+   * 渲染路线
+   */
+  const renderRoute = useCallback(
+    (map) => {
+      if (!map || !window.google?.maps) return;
 
-    if (destination) {
-      overlaysRef.current.destinationMarker = new google.maps.Marker({
-        map,
-        position: toGoogleLatLng(destination),
-        title: destination.name || '目的地',
-        icon: {
-          path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
-          scale: 4,
-          fillColor: '#FF3B30',
-          fillOpacity: 0.95,
-          strokeWeight: 1,
-          strokeColor: '#D92D20',
-        },
-      });
-    }
+      // 清除旧路线
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
+        polylineRef.current = null;
+      }
 
-    if (userLocation) {
-      overlaysRef.current.userMarker = new google.maps.Marker({
-        map,
-        position: toGoogleLatLng(userLocation),
-        title: '当前位置',
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 6,
-          fillColor: '#007AFF',
-          fillOpacity: 0.95,
-          strokeWeight: 2,
-          strokeColor: '#ffffff',
-        },
-      });
+      // 渲染新路线
+      if (routeCoordinates.length > 1) {
+        const path = routeCoordinates.map((coord) => ({
+          lat: coord.latitude,
+          lng: coord.longitude,
+        }));
 
-      if (isFinite(userLocation.accuracy)) {
-        overlaysRef.current.accuracyCircle = new google.maps.Circle({
+        polylineRef.current = new window.google.maps.Polyline({
+          path,
+          ...ROUTE_STYLES,
           map,
-          center: toGoogleLatLng(userLocation),
-          radius: userLocation.accuracy,
-          strokeColor: 'rgba(0,122,255,0.2)',
-          strokeOpacity: 0.2,
-          strokeWeight: 1,
-          fillColor: 'rgba(0,122,255,0.1)',
-          fillOpacity: 0.1,
         });
       }
-    }
-  }, [markers, roadPolygons, buildingPolygons, routeCoordinates, destination, userLocation, handleMarkerPress, clearOverlays]);
+    },
+    [routeCoordinates],
+  );
 
   /**
-   * 更新地图可视区域
-   * @param {google.maps.Map} map Google 地图实例
+   * 渲染用户位置和目的地标记
    */
-  const updateViewport = useCallback((map) => {
-    const google = window.google;
-    if (!google?.maps) {
-      return;
-    }
+  const renderLocationMarkers = useCallback(
+    (map) => {
+      if (!map || !window.google?.maps) return;
 
-    const points = [];
+      // 清除旧的用户位置标记
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setMap(null);
+        userMarkerRef.current = null;
+      }
 
-    if (Array.isArray(markers)) {
-      markers.forEach((marker) => {
-        const coordinate = marker.coordinate || {
-          latitude: marker.latitude,
-          longitude: marker.longitude,
-        };
-        if (coordinate && isFinite(coordinate.latitude) && isFinite(coordinate.longitude)) {
-          points.push(coordinate);
-        }
-      });
-    }
+      // 清除旧的目的地标记
+      if (destinationMarkerRef.current) {
+        destinationMarkerRef.current.setMap(null);
+        destinationMarkerRef.current = null;
+      }
 
-    if (Array.isArray(routeCoordinates)) {
-      routeCoordinates.forEach((point) => {
-        if (point && isFinite(point.latitude) && isFinite(point.longitude)) {
-          points.push(point);
-        }
-      });
-    }
+      // 渲染用户位置
+      if (userLocation) {
+        userMarkerRef.current = new window.google.maps.Marker({
+          position: { lat: userLocation.latitude, lng: userLocation.longitude },
+          map,
+          title: '当前位置',
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            ...MARKER_STYLES.USER_LOCATION,
+          },
+        });
+      }
 
-    if (destination) {
-      points.push(destination);
-    }
-
-    if (userLocation) {
-      points.push(userLocation);
-    }
-
-    if (points.length === 0) {
-      const region = computedRegion || initialRegion || MAP_CONFIG.defaultCenter;
-      map.setCenter(toGoogleLatLng(region));
-      map.setZoom(inferZoomFromRegion(region));
-      return;
-    }
-
-    if (points.length === 1) {
-      map.setCenter(toGoogleLatLng(points[0]));
-      map.setZoom(18);
-      return;
-    }
-
-    const bounds = new google.maps.LatLngBounds();
-    points.forEach((point) => bounds.extend(new google.maps.LatLng(point.latitude, point.longitude)));
-    map.fitBounds(bounds, 48);
-  }, [markers, routeCoordinates, destination, userLocation, computedRegion, initialRegion]);
+      // 渲染目的地
+      if (destination) {
+        destinationMarkerRef.current = new window.google.maps.Marker({
+          position: { lat: destination.latitude, lng: destination.longitude },
+          map,
+          title: destination.name || '目的地',
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            ...MARKER_STYLES.DESTINATION,
+          },
+        });
+      }
+    },
+    [userLocation, destination],
+  );
 
   /**
-   * 初始化并渲染地图
+   * 初始化地图
    */
   const initialiseMap = useCallback(async () => {
-    if (!visible) {
-      return;
-    }
-
-    setIsLoading(true);
+    if (!mapContainerRef.current) return;
 
     try {
-      const maps = await ensureGoogleMaps();
-      setMapError(null);
+      // 加载 Google Maps SDK
+      const maps = await loadGoogleMapsScript();
 
-      if (!mapInstanceRef.current && mapContainerRef.current) {
+      // 只在首次创建地图实例时设置 loading
+      if (!mapInstanceRef.current) {
+        setIsLoading(true);
+
+        // 创建地图实例
         const region = computedRegion || initialRegion || MAP_CONFIG.defaultCenter;
         mapInstanceRef.current = new maps.Map(mapContainerRef.current, {
-          center: toGoogleLatLng(region),
-          zoom: inferZoomFromRegion(region),
-          disableDefaultUI: true,
+          center: { lat: region.latitude, lng: region.longitude },
+          zoom: MAP_ZOOM_LEVELS.DEFAULT,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+          zoomControl: true,
           gestureHandling: 'greedy',
         });
+
+        // 加载位置
+        const regionToLoad = initialRegion || MAP_CONFIG.defaultCenter;
+        const regionKey = `${regionToLoad.latitude ?? ''}_${regionToLoad.longitude ?? ''}_${regionToLoad.latitudeDelta ?? ''}_${regionToLoad.longitudeDelta ?? ''}`;
+
+        if (!hasLoadedLayersRef.current || lastLoadedRegionKeyRef.current !== regionKey) {
+          await fetchLocation();
+          hasLoadedLayersRef.current = true;
+          lastLoadedRegionKeyRef.current = regionKey;
+        }
+
+        setIsLoading(false);
       }
 
+      // 更新地图内容
       if (mapInstanceRef.current) {
         renderMarkers(mapInstanceRef.current);
+        renderRoute(mapInstanceRef.current);
+        renderLocationMarkers(mapInstanceRef.current);
         updateViewport(mapInstanceRef.current);
-      }
-
-      const regionToLoad = initialRegion || MAP_CONFIG.defaultCenter;
-      await loadLayers(regionToLoad);
-
-      try {
-        await fetchLocation({ silent: true });
-      } catch (error) {
-        console.warn('[MapModal.web] 定位失败（忽略错误继续展示地图）:', error);
       }
     } catch (error) {
       console.error('[MapModal.web] 地图初始化失败:', error);
-      setMapError(error?.message || '地图加载失败，请稍后重试');
-    } finally {
       setIsLoading(false);
     }
-  }, [visible, computedRegion, initialRegion, renderMarkers, updateViewport, loadLayers, fetchLocation]);
+  }, [
+    loadGoogleMapsScript,
+    computedRegion,
+    initialRegion,
+    fetchLocation,
+    renderMarkers,
+    renderRoute,
+    renderLocationMarkers,
+    updateViewport,
+  ]);
 
+  // ==================== Effects ====================
+  /**
+   * 当模态框可见时初始化地图
+   */
   useEffect(() => {
     if (visible) {
-      initialiseMap();
-    }
+      const timer = setTimeout(() => {
+        initialiseMap();
+      }, MAP_LOADING_CONFIG.INIT_DELAY);
+      return () => clearTimeout(timer);
+    } else {
+      // 关闭时清理所有状态和引用
+      markersRef.current.forEach((marker) => marker.setMap(null));
+      markersRef.current = [];
 
-    return () => {
-      if (!visible && mapInstanceRef.current) {
-        clearOverlays();
+      polygonsRef.current.forEach((polygon) => polygon.setMap(null));
+      polygonsRef.current = [];
+
+      if (polylineRef.current) {
+        polylineRef.current.setMap(null);
+        polylineRef.current = null;
       }
-    };
-  }, [visible, initialiseMap, clearOverlays]);
 
-  useEffect(() => {
-    if (!visible || !mapInstanceRef.current || mapError) {
-      return;
+      if (userMarkerRef.current) {
+        userMarkerRef.current.setMap(null);
+        userMarkerRef.current = null;
+      }
+
+      if (destinationMarkerRef.current) {
+        destinationMarkerRef.current.setMap(null);
+        destinationMarkerRef.current = null;
+      }
+
+      if (mapInstanceRef.current) {
+        window.google?.maps?.event?.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
+
+      hasLoadedLayersRef.current = false;
+      lastLoadedRegionKeyRef.current = null;
+
+      stopNavigation();
     }
-    renderMarkers(mapInstanceRef.current);
-    updateViewport(mapInstanceRef.current);
-  }, [visible, markers, roadPolygons, buildingPolygons, routeCoordinates, destination, userLocation, mapError, renderMarkers, updateViewport]);
+  }, [visible, initialiseMap, stopNavigation]);
 
-  const handleClose = useCallback(() => {
+  /**
+   * 更新标记和多边形
+   */
+  useEffect(() => {
+    if (visible && mapInstanceRef.current) {
+      renderMarkers(mapInstanceRef.current);
+    }
+  }, [visible, markers, buildingPolygons, roadPolygons, renderMarkers]);
+
+  /**
+   * 更新路线
+   */
+  useEffect(() => {
+    if (visible && mapInstanceRef.current) {
+      renderRoute(mapInstanceRef.current);
+    }
+  }, [visible, routeCoordinates, renderRoute]);
+
+  /**
+   * 更新用户位置和目的地标记
+   */
+  useEffect(() => {
+    if (visible && mapInstanceRef.current) {
+      renderLocationMarkers(mapInstanceRef.current);
+    }
+  }, [visible, userLocation, destination, renderLocationMarkers]);
+
+  /**
+   * 更新视口
+   */
+  useEffect(() => {
+    if (visible && mapInstanceRef.current && computedRegion) {
+      updateViewport(mapInstanceRef.current);
+    }
+  }, [visible, computedRegion, updateViewport]);
+
+  // ==================== 事件处理器 ====================
+  /**
+   * 关闭处理
+   */
+  const handleClose = () => {
     stopNavigation();
     onClose();
-  }, [onClose, stopNavigation]);
+  };
 
-  const handleStartNavigation = useCallback(async () => {
-    if (!destination) {
-      return;
-    }
+  /**
+   * 开始导航处理
+   */
+  const handleStartNavigation = async (target = null) => {
+    if (!destination && !target) return;
+
     try {
-      await startNavigation(destination);
+      await startNavigation(target || destination);
+      handleDrawerClose();
     } catch (error) {
-      console.warn('[MapModal.web] 导航启动失败:', error);
+      console.warn('[MapModal.web] 导航启动失败:', error?.message || error);
     }
-  }, [destination, startNavigation]);
+  };
 
+  // ==================== 渲染 ====================
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={handleClose}
-    >
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View
           style={[
             styles.modalContainer,
             {
-              top: HEADER_HEIGHT,
+              top: MAP_MODAL_DIMENSIONS.HEADER_HEIGHT,
               bottom: bottomDistance,
             },
           ]}
         >
+          {/* 关闭按钮 */}
           <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
             <Text style={styles.closeButtonText}>✕</Text>
           </TouchableOpacity>
 
-          <View style={styles.map}>
-            <View ref={mapContainerRef} style={styles.mapCanvas} />
+          {/* 地图容器 */}
+          <div
+            ref={mapContainerRef}
+            style={{
+              width: '100%',
+              height: '100%',
+              borderRadius: 16,
+              overflow: 'hidden',
+            }}
+          />
 
-            {(isLoading || layersLoading || routeLoading) && (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color="#007AFF" />
-              </View>
-            )}
-
-            {mapError && (
-              <View style={styles.errorBanner}>
-                <Text style={styles.errorText}>{mapError}</Text>
-              </View>
-            )}
-          </View>
-
+          {/* 控制按钮 */}
           <View style={styles.controlsContainer}>
             <TouchableOpacity
               style={[styles.controlButton, locationLoading && styles.controlButtonDisabled]}
@@ -509,9 +517,12 @@ const MapModal = ({
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.controlButton, (!destination || routeLoading) && styles.controlButtonDisabled]}
+              style={[
+                styles.controlButton,
+                (!destination || routeLoading) && styles.controlButtonDisabled,
+              ]}
               disabled={!destination || routeLoading}
-              onPress={handleStartNavigation}
+              onPress={() => handleStartNavigation()}
             >
               <Text style={styles.controlButtonText}>
                 {isNavigating ? '更新导航' : '开始导航'}
@@ -519,37 +530,60 @@ const MapModal = ({
             </TouchableOpacity>
 
             {isNavigating && (
-              <TouchableOpacity style={[styles.controlButton, styles.stopButton]} onPress={stopNavigation}>
+              <TouchableOpacity
+                style={[styles.controlButton, styles.stopButton]}
+                onPress={stopNavigation}
+              >
                 <Text style={styles.controlButtonText}>结束导航</Text>
               </TouchableOpacity>
             )}
           </View>
 
+          {/* 路线信息 */}
           {(routeSummary || routeError) && (
             <View style={styles.routeInfoContainer}>
               {routeSummary && (
                 <>
                   <Text style={styles.routeInfoText}>距离：{routeSummary.distanceText}</Text>
                   <Text style={styles.routeInfoText}>预计耗时：{routeSummary.durationText}</Text>
-                  {routeSummary.note && <Text style={styles.routeInfoText}>提示：{routeSummary.note}</Text>}
+                  {routeSummary.note && (
+                    <Text style={styles.routeInfoText}>提示：{routeSummary.note}</Text>
+                  )}
                 </>
               )}
-              {routeError && <Text style={[styles.routeInfoText, styles.routeErrorText]}>{routeError}</Text>}
+              {routeError && <Text style={[styles.routeInfoText, styles.errorText]}>{routeError}</Text>}
             </View>
           )}
 
+          {/* 错误提示 */}
           {(locationError || layersError) && (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{locationError || layersError}</Text>
             </View>
           )}
 
+          {/* 建筑信息抽屉 */}
           {drawerVisible && selectedBuilding && (
             <MapDrawer
               visible={drawerVisible}
               buildingInfo={selectedBuilding}
               onClose={handleDrawerClose}
+              onNavigate={async (target) => {
+                if (!target?.latitude || !target?.longitude) return;
+                await handleStartNavigation({
+                  latitude: target.latitude,
+                  longitude: target.longitude,
+                  name: target.title || target.name,
+                });
+              }}
             />
+          )}
+
+          {/* 加载指示器 */}
+          {(isLoading || layersLoading || routeLoading) && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
           )}
         </View>
       </View>
@@ -557,6 +591,7 @@ const MapModal = ({
   );
 };
 
+// ==================== 样式 ====================
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -565,7 +600,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     position: 'absolute',
-    width: MAP_WIDTH,
+    width: MAP_MODAL_DIMENSIONS.WIDTH,
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     shadowColor: '#000',
@@ -590,20 +625,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
+    elevation: 5,
   },
   closeButtonText: {
     fontSize: 18,
     color: '#333',
     fontWeight: '600',
     lineHeight: 18,
-  },
-  map: {
-    flex: 1,
-  },
-  mapCanvas: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
   },
   controlsContainer: {
     position: 'absolute',
@@ -648,7 +676,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 4,
   },
-  routeErrorText: {
+  errorText: {
     color: '#FFCDD2',
   },
   errorBanner: {
@@ -661,10 +689,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(214, 45, 32, 0.85)',
     borderRadius: 12,
     zIndex: 25,
-  },
-  errorText: {
-    color: '#FFFFFF',
-    fontSize: 13,
   },
   loadingOverlay: {
     position: 'absolute',
@@ -680,5 +704,3 @@ const styles = StyleSheet.create({
 });
 
 export default MapModal;
-
-

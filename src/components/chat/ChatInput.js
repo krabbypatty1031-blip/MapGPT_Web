@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, TouchableOpacity, Text, StyleSheet, Image } from 'react-native';
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, Image, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -159,7 +159,12 @@ const ChatInput = ({
   };
 
   return (
-    <View style={styles.wrapper}>
+    <View
+      style={[
+        styles.wrapper,
+        Platform.OS === 'web' ? styles.wrapperWeb : styles.wrapperNative,
+      ]}
+    >
       {/* 图片区域 - 在输入框上方 */}
       {images.length > 0 && (
         <View style={styles.imageContainer}>
@@ -286,13 +291,22 @@ const ChatInput = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: 'absolute',
-    bottom: 12,
+    // 统一左右边距与层级控制，保持组件与背景布局解耦，便于根据平台切换定位策略
     left: 0,
     right: 0,
     paddingHorizontal: 16,
     backgroundColor: 'transparent',
     zIndex: 10,
+  },
+  wrapperNative: {
+    // 原生端保持绝对定位贴底，兼容既有交互与动画
+    position: 'absolute',
+    bottom: 12,
+  },
+  wrapperWeb: {
+    // web 端改用 fixed 锚定视口底部，避免消息列表拉长后对输入区造成挤压
+    position: 'fixed',
+    bottom: 12,
   },
   imageContainer: {
     backgroundColor: '#FFFFFF',

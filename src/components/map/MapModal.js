@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+﻿import React, { useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Modal,
@@ -53,7 +53,7 @@ const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeig
     markers,
     initialRegion,
     enableLocationTracking: false,
-    useMockLocation: false,
+    useMockLocation: true, // 使用模拟位置以简化调试环境定位需求
   });
 
   const bottomDistance = useMemo(
@@ -61,13 +61,17 @@ const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeig
     [chatInputHeight],
   );
 
+  /**
+   * 当地图可见时加载必要数据
+   * 注意：跳过图层加载，因为 CAMPUS_MARKERS 为空
+   */
   useEffect(() => {
     if (visible) {
       const regionToLoad = initialRegion || MAP_CONFIG.defaultCenter;
       const regionKey = `${regionToLoad.latitude ?? ''}_${regionToLoad.longitude ?? ''}_${regionToLoad.latitudeDelta ?? ''}_${regionToLoad.longitudeDelta ?? ''}`;
 
       if (!hasLoadedLayersRef.current || lastLoadedRegionKeyRef.current !== regionKey) {
-        loadLayers(regionToLoad);
+        // 只加载用户位置，跳过图层加载（因为 CAMPUS_MARKERS 为空）
         fetchLocation();
         hasLoadedLayersRef.current = true;
         lastLoadedRegionKeyRef.current = regionKey;
@@ -77,7 +81,7 @@ const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeig
       lastLoadedRegionKeyRef.current = null;
       stopNavigation();
     }
-  }, [visible, initialRegion, loadLayers, fetchLocation, stopNavigation]);
+  }, [visible, initialRegion, fetchLocation, stopNavigation]);
 
   useEffect(() => {
     if (visible && mapRef.current && computedRegion) {
@@ -108,13 +112,13 @@ const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeig
     onClose();
   };
 
-  const handleStartNavigation = async () => {
-    if (!destination) {
+  const handleStartNavigation = async (target = null) => {
+    if (!destination && !target) {
       return;
     }
 
     try {
-      await startNavigation(destination);
+      await startNavigation(target || destination);
     } catch (error) {
       console.warn('[MapModal] 导航启动失败:', error?.message || error);
     }
@@ -307,6 +311,17 @@ const MapModal = ({ visible, onClose, initialRegion, markers = [], chatInputHeig
               visible={drawerVisible}
               buildingInfo={selectedBuilding}
               onClose={handleDrawerClose}
+              onNavigate={async (target) => {
+                if (!target?.latitude || !target?.longitude) {
+                  return;
+                }
+                await handleStartNavigation({
+                  latitude: target.latitude,
+                  longitude: target.longitude,
+                  name: target.title || target.name,
+                });
+                handleDrawerClose();
+              }}
             />
           )}
 
