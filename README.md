@@ -8,7 +8,7 @@
 - AI chatbot
 - Map Interaction + Navigation
 - Image Recognition (e.g. buildings)
-- Voice Input
+- Voice Input + output
 
 ## Notes
 - Backend APIs are mocked or incomplete
